@@ -137,6 +137,6 @@ mod second_example {
     }
 }
 
-fn main() {
+pub fn main() {
     second_example::main();
 }

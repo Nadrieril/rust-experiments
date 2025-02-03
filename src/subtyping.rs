@@ -1,4 +1,4 @@
-fn main() {}
+pub fn main() {}
 
 trait Trait {
     type Assoc;
