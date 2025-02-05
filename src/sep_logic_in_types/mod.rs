@@ -121,21 +121,21 @@ fn hide_prev_lt<'this, 'prev, Perm: HasPointsTo<'this>, Prev: PackLt, Next>(
 
 /// A linked list with backward pointers, with ownership that follows the forward pointers.
 pub struct NodeStateFwd<'this, 'prev>(InvariantLifetime<'this>, InvariantLifetime<'prev>);
-unsafe impl<'this, 'prev> PredOnFields<'this, Node> for NodeStateFwd<'this, 'prev> {
+impl<'this, 'prev> PredOnFields<'this, Node> for NodeStateFwd<'this, 'prev> {
     type Unpacked = Node<Weak<'prev>, PackLt!(PointsTo<'_, NodeStateFwd<'_, 'this>>)>;
 }
 
 /// Like `NodeStateFwd` except flipping the fields of `Node` (the "forward" pointer is in the
 /// `Node.prev` field instead).
 pub struct NodeStateBwd<'this, 'next>(InvariantLifetime<'this>, InvariantLifetime<'next>);
-unsafe impl<'this, 'next> PredOnFields<'this, Node> for NodeStateBwd<'this, 'next> {
+impl<'this, 'next> PredOnFields<'this, Node> for NodeStateBwd<'this, 'next> {
     type Unpacked = Node<PackLt!(PointsTo<'_, NodeStateBwd<'_, 'this>>), Weak<'next>>;
 }
 
 /// A Node whose `prev` and `next` fields are each a forward-owned linked list with back-edges.
 /// This functions as a doubly-linked-list zipper.
 pub struct NodeStateCentral<'this>(InvariantLifetime<'this>);
-unsafe impl<'this> PredOnFields<'this, Node> for NodeStateCentral<'this> {
+impl<'this> PredOnFields<'this, Node> for NodeStateCentral<'this> {
     type Unpacked = Node<
         PackLt!(PointsTo<'_, NodeStateBwd<'_, 'this>>),
         PackLt!(PointsTo<'_, NodeStateFwd<'_, 'this>>),

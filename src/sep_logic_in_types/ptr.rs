@@ -111,9 +111,12 @@ impl<Perm, T> Debug for Ptr<Perm, T> {
     }
 }
 
+/// Safety: `Self` and `Target` are the same modulo predicates in `Ptr`, and the predicates in
+/// `Self` imply the corresponding predicates in `Target`.
 pub unsafe trait EraseNestedPerms: Sized {
     type Target;
     fn erase_nested_perms<Perm>(ptr: Ptr<Perm, Self>) -> Ptr<Perm, Self::Target> {
+        // Safety: ok by the precondition.
         unsafe { ptr.cast_ty() }
     }
 }
@@ -121,23 +124,23 @@ pub unsafe trait EraseNestedPerms: Sized {
 /// A predicate on a value's fields. This allows packing a predicate on a value into a predicate on
 /// the pointer to such a value. This makes it possible to build inductive predicates, with
 /// `pack`/`unpack` acting as constructor/destructor.
-/// Safety: `Unpacked` must be the same type as `Ty` modulo predicates, and have strictly stronger
-/// predicates.
-pub unsafe trait PredOnFields<'this, Ty>: Sized {
-    type Unpacked;
+pub trait PredOnFields<'this, Ty>: Sized {
+    type Unpacked: EraseNestedPerms<Target = Ty>;
     /// Given a pointer with `Self` permission, turn it into a pointer to the type with permissions
     /// applied.
     fn unpack(ptr: Ptr<PointsTo<'this, Self>, Ty>) -> Ptr<PointsTo<'this>, Self::Unpacked> {
-        // Safety: by the trait precondition this only changes predicates (i.e. ghost types) so
-        // this is layout-compatible. Since the definition of `Self` as a predicate is the effect
-        // of this function, this is definitionally a correct cast.
+        // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
+        // types) so the two types are layout-compatible. Since the definition of `Self` as a
+        // predicate is the effect of this function, this is definitionally a correct cast wrt
+        // permissions.
         unsafe { ptr.cast_perm().cast_ty() }
     }
     /// Reverse `unpack`.
     fn pack(ptr: Ptr<PointsTo<'this>, Self::Unpacked>) -> Ptr<PointsTo<'this, Self>, Ty> {
-        // Safety: by the trait precondition this only changes predicates (i.e. ghost types) so
-        // this is layout-compatible. Since the definition of `Self` as a predicate is the effect
-        // of this function, this is definitionally a correct cast.
+        // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
+        // types) so the two types are layout-compatible. Since the definition of `Self` as a
+        // predicate is the effect of this function, this is definitionally a correct cast wrt
+        // permissions.
         unsafe { ptr.cast_perm().cast_ty() }
     }
 }
