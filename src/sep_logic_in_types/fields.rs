@@ -125,10 +125,10 @@ where
     }
 }
 
-/// A predicate on a value's fields. This allows packing a predicate on a value into a predicate on
-/// the pointer to such a value. This makes it possible to build inductive predicates, with
-/// `pack`/`unpack` acting as constructor/destructor.
-pub trait PredOnFields<'this, Ty>: Sized {
+/// A predicate on a pointed-to value. It is defined by the fact that `Ptr<PointsTo<'this, Self>,
+/// Ty>` and `Ptr<PointsTo<'this>, Self::Unpacked>` are interchangeable. This makes it possible to
+/// represent inductive predicates, that are rolled/unrolled using the `pack`/`unpack` methods.
+pub trait PackedPredicate<'this, Ty>: Sized {
     type Unpacked: EraseNestedPerms<Erased = Ty>;
     /// Given a pointer with `Self` permission, turn it into a pointer to the type with permissions
     /// applied.
@@ -139,7 +139,7 @@ pub trait PredOnFields<'this, Ty>: Sized {
         // permissions.
         unsafe { ptr.cast_perm().cast_ty() }
     }
-    /// Reverse `unpack`.
+    /// Reverse of `unpack`.
     fn pack(ptr: Ptr<PointsTo<'this>, Self::Unpacked>) -> Ptr<PointsTo<'this, Self>, Ty> {
         // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
         // types) so the two types are layout-compatible. Since the definition of `Self` as a

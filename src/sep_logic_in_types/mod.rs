@@ -151,21 +151,21 @@ mod node_helpers {
 
 /// A linked list with backward pointers, with ownership that follows the forward pointers.
 pub struct NodeStateFwd<'this, 'prev>(InvariantLifetime<'this>, InvariantLifetime<'prev>);
-impl<'this, 'prev> PredOnFields<'this, Node> for NodeStateFwd<'this, 'prev> {
+impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
     type Unpacked = Node<Weak<'prev>, PackLt!(PointsTo<'_, NodeStateFwd<'_, 'this>>)>;
 }
 
 /// Like `NodeStateFwd` except flipping the fields of `Node` (the "forward" pointer is in the
 /// `Node.prev` field instead).
 pub struct NodeStateBwd<'this, 'next>(InvariantLifetime<'this>, InvariantLifetime<'next>);
-impl<'this, 'next> PredOnFields<'this, Node> for NodeStateBwd<'this, 'next> {
+impl<'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'this, 'next> {
     type Unpacked = Node<PackLt!(PointsTo<'_, NodeStateBwd<'_, 'this>>), Weak<'next>>;
 }
 
 /// A Node whose `prev` and `next` fields are each a forward-owned linked list with back-edges.
 /// This functions as a doubly-linked-list zipper.
 pub struct NodeStateCentral<'this>(InvariantLifetime<'this>);
-impl<'this> PredOnFields<'this, Node> for NodeStateCentral<'this> {
+impl<'this> PackedPredicate<'this, Node> for NodeStateCentral<'this> {
     type Unpacked = Node<
         PackLt!(PointsTo<'_, NodeStateBwd<'_, 'this>>),
         PackLt!(PointsTo<'_, NodeStateFwd<'_, 'this>>),
@@ -178,7 +178,7 @@ struct ListCursor(Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>);
 impl ListCursor {
     pub fn new(val: usize) -> Self {
         Ptr::new_uninit_cyclic::<
-            PackLt!(<NodeStateCentral<'_> as PredOnFields<'_, Node>>::Unpacked),
+            PackLt!(<NodeStateCentral<'_> as PackedPredicate<'_, Node>>::Unpacked),
             _,
         >(|ptr| {
             let ptr = ptr.write(Node {
@@ -220,7 +220,7 @@ impl ListCursor {
                 // its type, hence the need for a closure like this. We must pack the `'new`
                 // brand before returning.
                 type ToAlloc<'prev> =
-                    PackLt!(<NodeStateFwd<'_, 'prev> as PredOnFields<'_, Node>>::Unpacked);
+                    PackLt!(<NodeStateFwd<'_, 'prev> as PackedPredicate<'_, Node>>::Unpacked);
                 let ptr = Ptr::new_uninit_cyclic::<ToAlloc<'_>, _>(|new| {
                     // Update `next.prev` to point to `new`.
                     let next = next.map(|next| {
