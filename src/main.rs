@@ -2,7 +2,7 @@
 #![feature(box_vec_non_null)]
 
 mod non_terminating_assoc_types;
-mod sep_logic_permissions;
+mod sep_logic_in_types;
 mod subtyping;
 
 fn main() {
@@ -10,5 +10,5 @@ fn main() {
         subtyping::main();
         non_terminating_assoc_types::main();
     }
-    sep_logic_permissions::main();
+    sep_logic_in_types::main();
 }
