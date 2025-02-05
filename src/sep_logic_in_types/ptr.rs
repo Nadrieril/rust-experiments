@@ -50,7 +50,7 @@ impl<Perm, T> Ptr<Perm, T> {
         }
     }
 
-    pub fn alias<'this>(&self) -> Ptr<Weak<'this>, T::Target>
+    pub fn weak_ref<'this>(&self) -> Ptr<Weak<'this>, T::Target>
     where
         Perm: HasWeak<'this>,
         T: EraseNestedPerms,

@@ -209,7 +209,7 @@ impl ListCursor {
                     // Update `next.prev` to point to `new`.
                     let next = next.map(|next| {
                         let next = NodeStateFwd::unpack(next);
-                        let (next, _) = node_helpers::write_prev(next, new.alias());
+                        let (next, _) = node_helpers::write_prev(next, new.weak_ref());
                         let next = NodeStateFwd::pack(next);
                         pack_lt(next)
                     });
@@ -217,7 +217,7 @@ impl ListCursor {
                     // `next`.
                     let new = NodeStateFwd::pack(new.write(Node {
                         val,
-                        prev: Some(ptr.alias()),
+                        prev: Some(ptr.weak_ref()),
                         next,
                     }));
                     // Update `ptr.next`.
