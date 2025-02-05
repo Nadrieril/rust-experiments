@@ -50,19 +50,26 @@ impl<Perm, T> Ptr<Perm, T> {
         }
     }
 
-    pub fn weak_ref<'this>(&self) -> Ptr<Weak<'this>, T::Target>
+    pub fn weak_ref_no_erase<'this>(&self) -> Ptr<Weak<'this>, T>
+    where
+        Perm: HasWeak<'this>,
+    {
+        unsafe { self.copy().cast_perm() }
+    }
+
+    pub fn weak_ref<'this>(&self) -> Ptr<Weak<'this>, T::Erased>
     where
         Perm: HasWeak<'this>,
         T: EraseNestedPerms,
     {
-        unsafe { self.copy().cast_perm() }.erase_target_perms()
+        self.weak_ref_no_erase().erase_target_perms()
     }
 
     pub fn noperm(&self) -> Ptr<(), T> {
         unsafe { self.copy().cast_perm() }
     }
 
-    pub fn erase_target_perms(self) -> Ptr<Perm, T::Target>
+    pub fn erase_target_perms(self) -> Ptr<Perm, T::Erased>
     where
         T: EraseNestedPerms,
     {
@@ -108,39 +115,5 @@ pub fn pack_lt<'this, Perm: PackLt, T>(ptr: Ptr<Perm::Of<'this>, T>) -> Ptr<Perm
 impl<Perm, T> Debug for Ptr<Perm, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", std::any::type_name::<Self>())
-    }
-}
-
-/// Safety: `Self` and `Target` are the same modulo predicates in `Ptr`, and the predicates in
-/// `Self` imply the corresponding predicates in `Target`.
-pub unsafe trait EraseNestedPerms: Sized {
-    type Target;
-    fn erase_nested_perms<Perm>(ptr: Ptr<Perm, Self>) -> Ptr<Perm, Self::Target> {
-        // Safety: ok by the precondition.
-        unsafe { ptr.cast_ty() }
-    }
-}
-
-/// A predicate on a value's fields. This allows packing a predicate on a value into a predicate on
-/// the pointer to such a value. This makes it possible to build inductive predicates, with
-/// `pack`/`unpack` acting as constructor/destructor.
-pub trait PredOnFields<'this, Ty>: Sized {
-    type Unpacked: EraseNestedPerms<Target = Ty>;
-    /// Given a pointer with `Self` permission, turn it into a pointer to the type with permissions
-    /// applied.
-    fn unpack(ptr: Ptr<PointsTo<'this, Self>, Ty>) -> Ptr<PointsTo<'this>, Self::Unpacked> {
-        // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
-        // types) so the two types are layout-compatible. Since the definition of `Self` as a
-        // predicate is the effect of this function, this is definitionally a correct cast wrt
-        // permissions.
-        unsafe { ptr.cast_perm().cast_ty() }
-    }
-    /// Reverse `unpack`.
-    fn pack(ptr: Ptr<PointsTo<'this>, Self::Unpacked>) -> Ptr<PointsTo<'this, Self>, Ty> {
-        // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
-        // types) so the two types are layout-compatible. Since the definition of `Self` as a
-        // predicate is the effect of this function, this is definitionally a correct cast wrt
-        // permissions.
-        unsafe { ptr.cast_perm().cast_ty() }
     }
 }

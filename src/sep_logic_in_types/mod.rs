@@ -6,8 +6,10 @@ use std::{
     ptr::NonNull,
 };
 
+mod fields;
 mod permissions;
 mod ptr;
+use fields::*;
 use permissions::*;
 use ptr::*;
 
@@ -21,9 +23,35 @@ pub struct Node<Prev = (), Next = ()> {
     next: Option<Ptr<Next, Node>>,
 }
 
-/// Helpers to manipulate permissions in `Node`. This should be made more abstract to clarify the
-/// `unsafe` uses. Ideally a user would have to write none of that.
+// All of the unsafe for `Node` is in these three declarations.
+unsafe impl<Prev, Next> EraseNestedPerms for Node<Prev, Next> {
+    type Erased = Node;
+}
+
+unsafe impl<Prev, Next> HasPermField<0, Prev> for Node<Prev, Next> {
+    type FieldTy = Node;
+    type ChangePerm<NewPrev> = Node<NewPrev, Next>;
+    fn field_ref(&self) -> &Option<Ptr<Prev, Self::FieldTy>> {
+        &self.prev
+    }
+    fn field_mut(&mut self) -> &mut Option<Ptr<Prev, Self::FieldTy>> {
+        &mut self.prev
+    }
+}
+unsafe impl<Prev, Next> HasPermField<1, Next> for Node<Prev, Next> {
+    type FieldTy = Node;
+    type ChangePerm<NewNext> = Node<Prev, NewNext>;
+    fn field_ref(&self) -> &Option<Ptr<Next, Self::FieldTy>> {
+        &self.next
+    }
+    fn field_mut(&mut self) -> &mut Option<Ptr<Next, Self::FieldTy>> {
+        &mut self.next
+    }
+}
+
+/// Helpers that wrap `HasPermField` methods.
 mod node_helpers {
+    use super::fields::*;
     use super::permissions::*;
     use super::ptr::*;
     use super::Node;
@@ -34,62 +62,44 @@ mod node_helpers {
         ptr::NonNull,
     };
 
-    unsafe impl<Prev, Next> EraseNestedPerms for Node<Prev, Next> {
-        type Target = Node;
-    }
-
     /// Writes the given pointer into `ptr.next`.
     pub fn write_next<'this, Perm: HasPointsTo<'this>, Prev, OldNext, Next>(
         mut ptr: Ptr<Perm, Node<Prev, OldNext>>,
         next: Ptr<Next, Node>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldNext, Node>>) {
-        let old_next = ptr.next.as_ref().map(|next| unsafe { next.copy() });
-        ptr.next = Some(unsafe { next.cast_perm() });
-        let new_ptr = unsafe { ptr.cast_ty() };
-        (new_ptr, old_next)
+        Node::write_field(ptr, next)
     }
     /// Writes the given pointer into `ptr.prev`.
     pub fn write_prev<'this, Perm: HasPointsTo<'this>, OldPrev, Prev, Next>(
         mut ptr: Ptr<Perm, Node<OldPrev, Next>>,
         prev: Ptr<Prev, Node>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldPrev, Node>>) {
-        let old_prev = ptr.prev.as_ref().map(|prev| unsafe { prev.copy() });
-        ptr.prev = Some(unsafe { prev.cast_perm() });
-        let new_ptr = unsafe { ptr.cast_ty() };
-        (new_ptr, old_prev)
+        <Node<_, _> as HasPermField<0, _>>::write_field(ptr, prev)
     }
 
     /// Like `write_next` but only moves permissions around. Does not write to memory.
     pub fn write_next_permission<'this, 'next, Perm, Prev, OldNext, Next>(
         ptr: Ptr<Perm, Node<Prev, OldNext>>,
-        _next: Ptr<Next, Node>,
+        next: Ptr<Next, Node>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldNext, Node>>)
     where
         Perm: HasPointsTo<'this>,
         OldNext: HasWeak<'next>,
         Next: HasWeak<'next>,
     {
-        let old_next = ptr.next.as_ref().map(|next| unsafe { next.copy() });
-        // Safety: this has the same operation as `write_next`, except we don't need to actually
-        // write to memory because the `'next` brand ensures the pointer values are already equal.
-        let ptr = unsafe { ptr.cast_ty() };
-        (ptr, old_next)
+        <Node<_, _> as HasPermField<1, _>>::write_field_permission(ptr, next)
     }
     /// Like `write_prev` but only moves permissions around. Does not write to memory.
     pub fn write_prev_permission<'this, 'prev, Perm, OldPrev, Prev, Next>(
         ptr: Ptr<Perm, Node<OldPrev, Next>>,
-        _prev: Ptr<Prev, Node>,
+        prev: Ptr<Prev, Node>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldPrev, Node>>)
     where
         Perm: HasPointsTo<'this>,
         OldPrev: HasWeak<'prev>,
         Prev: HasWeak<'prev>,
     {
-        let old_prev = ptr.prev.as_ref().map(|prev| unsafe { prev.copy() });
-        // Safety: this has the same operation as `write_prev`, except we don't need to actually
-        // write to memory because the `'prev` brand ensures the pointer values are already equal.
-        let ptr = unsafe { ptr.cast_ty() };
-        (ptr, old_prev)
+        <Node<_, _> as HasPermField<0, _>>::write_field_permission(ptr, prev)
     }
 
     /// Downgrade the permission in `next`.
@@ -99,9 +109,7 @@ mod node_helpers {
     where
         Next: HasWeak<'next>,
     {
-        // Safety: we're downgrading a `HasWeak<'a>` to a `Weak<'a>`, which is fine even without
-        // any particular permissions on `ptr`.
-        unsafe { ptr.cast_ty() }
+        <Node<_, _> as HasPermField<1, _>>::downgrade_field_permission(ptr)
     }
     /// Downgrade the permission in `prev`.
     pub fn downgrade_prev_ownership<'this, 'next, Perm, Prev, Next>(
@@ -110,37 +118,7 @@ mod node_helpers {
     where
         Prev: HasWeak<'next>,
     {
-        // Safety: we're downgrading a `HasWeak<'a>` to a `Weak<'a>`, which is fine even without
-        // any particular permissions on `ptr`.
-        unsafe { ptr.cast_ty() }
-    }
-
-    /// If we have a points-to to a `Node`, we can extract a points-to from one of its fields, leaving
-    /// a `Weak` permission in its place. Does not write to memory.
-    pub fn extract_next_ownership<'this, 'next, Perm, Prev, Next>(
-        ptr: Ptr<Perm, Node<Prev, Next>>,
-    ) -> (Ptr<Perm, Node<Prev, Weak<'next>>>, Option<Ptr<Next, Node>>)
-    where
-        Perm: HasPointsTo<'this>,
-        Next: HasWeak<'next>,
-    {
-        match ptr.next.as_ref().map(|next| next.weak_ref()) {
-            Some(weak) => write_next_permission(ptr, weak),
-            None => (downgrade_next_ownership(ptr), None),
-        }
-    }
-    /// Like `extract_next_ownership`.
-    pub fn extract_prev_ownership<'this, 'prev, Perm, Prev, Next>(
-        ptr: Ptr<Perm, Node<Prev, Next>>,
-    ) -> (Ptr<Perm, Node<Weak<'prev>, Next>>, Option<Ptr<Prev, Node>>)
-    where
-        Perm: HasPointsTo<'this>,
-        Prev: HasWeak<'prev>,
-    {
-        match ptr.prev.as_ref().map(|prev| prev.weak_ref()) {
-            Some(weak) => write_prev_permission(ptr, weak),
-            None => (downgrade_prev_ownership(ptr), None),
-        }
+        <Node<_, _> as HasPermField<0, _>>::downgrade_field_permission(ptr)
     }
 
     /// Give a name to the hidden lifetime in the permission of the `next` field.
@@ -148,26 +126,26 @@ mod node_helpers {
         ptr: Ptr<Perm, Node<Prev, Next>>,
         f: impl for<'next> FnOnce(Ptr<Perm, Node<Prev, Next::Of<'next>>>) -> R,
     ) -> R {
-        f(unsafe { ptr.cast_ty() })
+        <Node<_, _> as HasPermField<1, _>>::unpack_field_lt(ptr, f)
     }
     /// Hide the name of the lifetime in the permission of the `next` field.
     pub fn pack_next_lt<'this, 'next, Perm: HasPointsTo<'this>, Prev, Next: PackLt>(
         ptr: Ptr<Perm, Node<Prev, Next::Of<'next>>>,
     ) -> Ptr<Perm, Node<Prev, Next>> {
-        unsafe { ptr.cast_ty() }
+        <Node<_, _> as HasPermField<1, _>>::pack_field_lt(ptr)
     }
     /// Give a name to the hidden lifetime in the permission of the `prev` field.
     pub fn unpack_prev_lt<'this, Perm: HasPointsTo<'this>, Prev: PackLt, Next, R>(
         ptr: Ptr<Perm, Node<Prev, Next>>,
         f: impl for<'prev> FnOnce(Ptr<Perm, Node<Prev::Of<'prev>, Next>>) -> R,
     ) -> R {
-        f(unsafe { ptr.cast_ty() })
+        <Node<_, _> as HasPermField<0, _>>::unpack_field_lt(ptr, f)
     }
     /// Hide the name of the lifetime in the permission of the `prev` field.
     pub fn pack_prev_lt<'this, 'prev, Perm: HasPointsTo<'this>, Prev: PackLt, Next>(
         ptr: Ptr<Perm, Node<Prev::Of<'prev>, Next>>,
     ) -> Ptr<Perm, Node<Prev, Next>> {
-        unsafe { ptr.cast_ty() }
+        <Node<_, _> as HasPermField<0, _>>::pack_field_lt(ptr)
     }
 }
 
@@ -237,7 +215,7 @@ impl ListCursor {
                 //     >,
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
-                let (ptr, next) = node_helpers::extract_next_ownership(ptr);
+                let (ptr, next) = extract_field_permission(ptr);
                 // We need to allocate a new node at address `'new` that can have `'new` in
                 // its type, hence the need for a closure like this. We must pack the `'new`
                 // brand before returning.
@@ -261,11 +239,7 @@ impl ListCursor {
                     // Update `ptr.next`.
                     let (ptr, _) = node_helpers::write_next(ptr, new);
                     // Pack the `'new` lifetime
-                    node_helpers::pack_next_lt::<
-                        _,
-                        PackLt!(<'a> = PointsTo<'a, NodeStateBwd<'a, '_>>),
-                        _,
-                    >(ptr)
+                    node_helpers::pack_next_lt(ptr)
                 });
                 // Unexpand permissions
                 let ptr = NodeStateCentral::pack(ptr);
@@ -306,7 +280,7 @@ impl ListCursor {
                 //     >,
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
-                let (ptr, next) = node_helpers::extract_next_ownership(ptr);
+                let (ptr, next) = extract_field_permission(ptr);
                 // `unwrap` is ok because we checked earlier.
                 let next = next.unwrap();
                 // ptr: Ptr<
@@ -337,11 +311,7 @@ impl ListCursor {
                 //    >>
                 // >
                 // Pack lifetime
-                let ptr = node_helpers::pack_prev_lt::<
-                    _,
-                    PackLt!(<'a> = PointsTo<'a, NodeStateBwd<'a, '_>>),
-                    _,
-                >(ptr);
+                let ptr = node_helpers::pack_prev_lt(ptr);
                 // ptr: Ptr<PointsTo<'next>,
                 //    Node<
                 //      PackLt!(PointsTo<'_, NodeStateBwd<'_, 'next>>),
@@ -371,7 +341,7 @@ impl ListCursor {
             // Expand the lifetime
             node_helpers::unpack_prev_lt(ptr, |ptr| {
                 // Extract the ownership in `prev` (and get a copy of that pointer).
-                let (ptr, prev) = node_helpers::extract_prev_ownership(ptr);
+                let (ptr, prev) = extract_field_permission(ptr);
                 // `unwrap` is ok because we checked earlier.
                 let prev = prev.unwrap();
                 // Unexpand the permissions

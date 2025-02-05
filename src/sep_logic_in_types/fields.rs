@@ -1,0 +1,150 @@
+use super::*;
+use higher_kinded_types::ForLt as PackLt;
+use std::{
+    fmt::Debug,
+    marker::PhantomData,
+    mem::MaybeUninit,
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+};
+
+/// Safety: `Self` and `Target` are the same modulo predicates in `Ptr`, and the predicates in
+/// `Self` imply the corresponding predicates in `Target`.
+pub unsafe trait EraseNestedPerms: Sized {
+    type Erased;
+    fn erase_nested_perms<Perm>(ptr: Ptr<Perm, Self>) -> Ptr<Perm, Self::Erased> {
+        // Safety: ok by the precondition.
+        unsafe { ptr.cast_ty() }
+    }
+}
+
+/// A type that has an `Option<Ptr<Perm, FieldTy>>` field where `Perm` is a generic argument.
+/// This trait permits manipulating the value and permissions of this field.
+/// The `F` is the index of the field, to support multiple fields per type.
+pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
+    type FieldTy;
+    type ChangePerm<NewPerm>: HasPermField<F, NewPerm> + EraseNestedPerms<Erased = Self::Erased>;
+
+    fn field_ref(&self) -> &Option<Ptr<FieldPerm, Self::FieldTy>>;
+    fn field_mut(&mut self) -> &mut Option<Ptr<FieldPerm, Self::FieldTy>>;
+
+    /// Writes the given pointer into the field.
+    fn write_field<'this, PtrPerm, NewPerm>(
+        mut ptr: Ptr<PtrPerm, Self>,
+        new: Ptr<NewPerm, Self::FieldTy>,
+    ) -> (
+        Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
+        Option<Ptr<FieldPerm, Self::FieldTy>>,
+    )
+    where
+        PtrPerm: HasPointsTo<'this>,
+    {
+        let old_field_val = ptr.field_ref().as_ref().map(|new| unsafe { new.copy() });
+        *ptr.field_mut() = Some(unsafe { new.cast_perm() });
+        let new_ptr = unsafe { ptr.cast_ty() };
+        (new_ptr, old_field_val)
+    }
+    /// Like `write_field` but only moves permissions around. Does not write to memory.
+    fn write_field_permission<'this, 'field, PtrPerm, NewPerm>(
+        mut ptr: Ptr<PtrPerm, Self>,
+        new: Ptr<NewPerm, Self::FieldTy>,
+    ) -> (
+        Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
+        Option<Ptr<FieldPerm, Self::FieldTy>>,
+    )
+    where
+        PtrPerm: HasPointsTo<'this>,
+        FieldPerm: HasWeak<'field>,
+        NewPerm: HasWeak<'field>,
+    {
+        let old_field_val = ptr.field_ref().as_ref().map(|new| unsafe { new.copy() });
+        // Safety: this has the same operation as `write_field`, except we don't need to
+        // actually write to memory because the `'field` brand ensures the pointer values are
+        // already equal.
+        let ptr = unsafe { ptr.cast_ty() };
+        (ptr, old_field_val)
+    }
+    /// Downgrade the permission in the field.
+    fn downgrade_field_permission<'this, 'next, PtrPerm>(
+        ptr: Ptr<PtrPerm, Self>,
+    ) -> Ptr<PtrPerm, Self::ChangePerm<Weak<'next>>>
+    where
+        FieldPerm: HasWeak<'next>,
+    {
+        // Safety: we're downgrading a `HasWeak<'a>` to a `Weak<'a>`, which is fine even without
+        // any particular permissions on `ptr`.
+        unsafe { ptr.cast_ty() }
+    }
+
+    /// Give a name to the hidden lifetime in the permission of the field.
+    fn unpack_field_lt<'this, PtrPerm, R>(
+        ptr: Ptr<PtrPerm, Self>,
+        f: impl for<'field> FnOnce(Ptr<PtrPerm, Self::ChangePerm<FieldPerm::Of<'field>>>) -> R,
+    ) -> R
+    where
+        PtrPerm: HasPointsTo<'this>,
+        FieldPerm: PackLt,
+    {
+        // Safety: the higher-ranked type + invariant lifetimes hopefully ensures the identifier is
+        // fresh and cannot be mixed with other similar identifiers. The behavior of associated
+        // types in this context is not entirely clear to me though.
+        f(unsafe { ptr.cast_ty() })
+    }
+    /// Hide the name of the lifetime in the permission of the field.
+    fn pack_field_lt<'this, 'field, PtrPerm>(
+        ptr: Ptr<PtrPerm, Self::ChangePerm<FieldPerm::Of<'field>>>,
+    ) -> Ptr<PtrPerm, Self>
+    where
+        PtrPerm: HasPointsTo<'this>,
+        FieldPerm: PackLt,
+    {
+        unsafe { ptr.cast_ty() }
+    }
+}
+
+/// Extract the permission stored in the field, leaving a `Weak` permission in its place. Does
+/// not write to memory.
+pub fn extract_field_permission<'this, 'field, const F: usize, T, PtrPerm, FieldPerm>(
+    ptr: Ptr<PtrPerm, T>,
+) -> (
+    Ptr<PtrPerm, T::ChangePerm<Weak<'field>>>,
+    Option<Ptr<FieldPerm, T::FieldTy>>,
+)
+where
+    T: HasPermField<F, FieldPerm>,
+    PtrPerm: HasPointsTo<'this>,
+    FieldPerm: HasWeak<'field>,
+{
+    match ptr
+        .field_ref()
+        .as_ref()
+        .map(|next| next.weak_ref_no_erase())
+    {
+        Some(weak) => T::write_field_permission(ptr, weak),
+        None => (T::downgrade_field_permission(ptr), None),
+    }
+}
+
+/// A predicate on a value's fields. This allows packing a predicate on a value into a predicate on
+/// the pointer to such a value. This makes it possible to build inductive predicates, with
+/// `pack`/`unpack` acting as constructor/destructor.
+pub trait PredOnFields<'this, Ty>: Sized {
+    type Unpacked: EraseNestedPerms<Erased = Ty>;
+    /// Given a pointer with `Self` permission, turn it into a pointer to the type with permissions
+    /// applied.
+    fn unpack(ptr: Ptr<PointsTo<'this, Self>, Ty>) -> Ptr<PointsTo<'this>, Self::Unpacked> {
+        // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
+        // types) so the two types are layout-compatible. Since the definition of `Self` as a
+        // predicate is the effect of this function, this is definitionally a correct cast wrt
+        // permissions.
+        unsafe { ptr.cast_perm().cast_ty() }
+    }
+    /// Reverse `unpack`.
+    fn pack(ptr: Ptr<PointsTo<'this>, Self::Unpacked>) -> Ptr<PointsTo<'this, Self>, Ty> {
+        // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
+        // types) so the two types are layout-compatible. Since the definition of `Self` as a
+        // predicate is the effect of this function, this is definitionally a correct cast wrt
+        // permissions.
+        unsafe { ptr.cast_perm().cast_ty() }
+    }
+}
