@@ -6,6 +6,9 @@ mod sep_logic_permissions;
 mod subtyping;
 
 fn main() {
-    subtyping::main();
-    non_terminating_assoc_types::main();
+    if false {
+        subtyping::main();
+        non_terminating_assoc_types::main();
+    }
+    sep_logic_permissions::main();
 }
