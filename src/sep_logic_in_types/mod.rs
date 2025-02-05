@@ -58,53 +58,91 @@ mod node_helpers {
         let new_ptr = unsafe { ptr.cast_ty() };
         (new_ptr, old_prev)
     }
+
+    /// Like `write_next` but only moves permissions around. Does not write to memory.
+    pub fn write_next_permission<'this, 'next, Perm, Prev, OldNext, Next>(
+        ptr: Ptr<Perm, Node<Prev, OldNext>>,
+        _next: Ptr<Next, Node>,
+    ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldNext, Node>>)
+    where
+        Perm: HasPointsTo<'this>,
+        OldNext: HasWeak<'next>,
+        Next: HasWeak<'next>,
+    {
+        let old_next = ptr.next.as_ref().map(|next| unsafe { next.copy() });
+        // Safety: this has the same operation as `write_next`, except we don't need to actually
+        // write to memory because the `'next` brand ensures the pointer values are already equal.
+        let ptr = unsafe { ptr.cast_ty() };
+        (ptr, old_next)
+    }
+    /// Like `write_prev` but only moves permissions around. Does not write to memory.
+    pub fn write_prev_permission<'this, 'prev, Perm, OldPrev, Prev, Next>(
+        ptr: Ptr<Perm, Node<OldPrev, Next>>,
+        _prev: Ptr<Prev, Node>,
+    ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldPrev, Node>>)
+    where
+        Perm: HasPointsTo<'this>,
+        OldPrev: HasWeak<'prev>,
+        Prev: HasWeak<'prev>,
+    {
+        let old_prev = ptr.prev.as_ref().map(|prev| unsafe { prev.copy() });
+        // Safety: this has the same operation as `write_prev`, except we don't need to actually
+        // write to memory because the `'prev` brand ensures the pointer values are already equal.
+        let ptr = unsafe { ptr.cast_ty() };
+        (ptr, old_prev)
+    }
+
+    /// Downgrade the permission in `next`.
+    pub fn downgrade_next_ownership<'this, 'next, Perm, Prev, Next>(
+        ptr: Ptr<Perm, Node<Prev, Next>>,
+    ) -> Ptr<Perm, Node<Prev, Weak<'next>>>
+    where
+        Next: HasWeak<'next>,
+    {
+        // Safety: we're downgrading a `HasWeak<'a>` to a `Weak<'a>`, which is fine even without
+        // any particular permissions on `ptr`.
+        unsafe { ptr.cast_ty() }
+    }
+    /// Downgrade the permission in `prev`.
+    pub fn downgrade_prev_ownership<'this, 'next, Perm, Prev, Next>(
+        ptr: Ptr<Perm, Node<Prev, Next>>,
+    ) -> Ptr<Perm, Node<Weak<'next>, Next>>
+    where
+        Prev: HasWeak<'next>,
+    {
+        // Safety: we're downgrading a `HasWeak<'a>` to a `Weak<'a>`, which is fine even without
+        // any particular permissions on `ptr`.
+        unsafe { ptr.cast_ty() }
+    }
+
     /// If we have a points-to to a `Node`, we can extract a points-to from one of its fields, leaving
-    /// a `Weak` permission in its place.
-    pub fn extract_next_ownership<'this, 'next, Prev, Next>(
-        ptr: Ptr<PointsTo<'this>, Node<Prev, PointsTo<'next, Next>>>,
-    ) -> (
-        Ptr<PointsTo<'this>, Node<Prev, Weak<'next>>>,
-        Option<Ptr<PointsTo<'next, Next>, Node>>,
-    ) {
-        // Safety: we're copying a `PointsTo`, which is fine because we remove it from the type on the
-        // next line.
-        let next_ptr = unsafe { ptr.next.as_ref().map(|next| next.copy()) };
-        // Safety: we're casting between types that differ only in ghost types, which preserves layout.
-        // We're downgrading a `PointsTo` to the corresponding `Weak` permission, which is
-        // allowed.
-        let ptr = unsafe { ptr.cast_ty() };
-        (ptr, next_ptr)
+    /// a `Weak` permission in its place. Does not write to memory.
+    pub fn extract_next_ownership<'this, 'next, Perm, Prev, Next>(
+        ptr: Ptr<Perm, Node<Prev, Next>>,
+    ) -> (Ptr<Perm, Node<Prev, Weak<'next>>>, Option<Ptr<Next, Node>>)
+    where
+        Perm: HasPointsTo<'this>,
+        Next: HasWeak<'next>,
+    {
+        match ptr.next.as_ref().map(|next| next.weak_ref()) {
+            Some(weak) => write_next_permission(ptr, weak),
+            None => (downgrade_next_ownership(ptr), None),
+        }
     }
-    /// Reverse of `extract_next_ownership`. Does not touch memory, only moves ghost ownership around.
-    pub fn insert_next_ownership<'this, 'next, Perm: HasPointsTo<'this>, Prev, Next>(
-        ptr: Ptr<Perm, Node<Prev, Weak<'next>>>,
-        _next: Ptr<PointsTo<'next, Next>, Node>,
-    ) -> Ptr<Perm, Node<Prev, PointsTo<'next, Next>>> {
-        unsafe { ptr.cast_ty() }
+    /// Like `extract_next_ownership`.
+    pub fn extract_prev_ownership<'this, 'prev, Perm, Prev, Next>(
+        ptr: Ptr<Perm, Node<Prev, Next>>,
+    ) -> (Ptr<Perm, Node<Weak<'prev>, Next>>, Option<Ptr<Prev, Node>>)
+    where
+        Perm: HasPointsTo<'this>,
+        Prev: HasWeak<'prev>,
+    {
+        match ptr.prev.as_ref().map(|prev| prev.weak_ref()) {
+            Some(weak) => write_prev_permission(ptr, weak),
+            None => (downgrade_prev_ownership(ptr), None),
+        }
     }
-    /// Like of `extract_next_ownership`.
-    pub fn extract_prev_ownership<'this, 'prev, Prev, Next>(
-        ptr: Ptr<PointsTo<'this>, Node<PointsTo<'prev, Prev>, Next>>,
-    ) -> (
-        Ptr<PointsTo<'this>, Node<Weak<'prev>, Next>>,
-        Option<Ptr<PointsTo<'prev, Prev>, Node>>,
-    ) {
-        // Safety: we're copying a `PointsTo`, which is fine because we remove it from the type on the
-        // next line.
-        let next_ptr = unsafe { ptr.prev.as_ref().map(|prev| prev.copy()) };
-        // Safety: we're casting between types that differ only in ghost types, which preserves layout.
-        // We're downgrading a `PointsTo` to the corresponding `Weak` permission, which is
-        // allowed.
-        let ptr = unsafe { ptr.cast_ty() };
-        (ptr, next_ptr)
-    }
-    /// Reverse of `extract_prev_ownership`.
-    pub fn insert_prev_ownership<'this, 'prev, Prev, Next>(
-        ptr: Ptr<PointsTo<'this>, Node<Weak<'prev>, Next>>,
-        _prev: Ptr<PointsTo<'prev, Prev>, Node>,
-    ) -> Ptr<PointsTo<'this>, Node<PointsTo<'prev, Prev>, Next>> {
-        unsafe { ptr.cast_ty() }
-    }
+
     /// Give a name to the hidden lifetime in the permission of the `next` field.
     pub fn unpack_next_lt<'this, Perm: HasPointsTo<'this>, Prev, Next: PackLt, R>(
         ptr: Ptr<Perm, Node<Prev, Next>>,
@@ -291,7 +329,7 @@ impl ListCursor {
                 //    >,
                 // >
                 // Insert ownership
-                let ptr = node_helpers::insert_prev_ownership(next, ptr);
+                let (ptr, _) = node_helpers::write_prev_permission(next, ptr);
                 // ptr: Ptr<PointsTo<'next>,
                 //    Node<
                 //      PointsTo<'this, NodeStateBwd<'this, 'next>>,
@@ -341,7 +379,7 @@ impl ListCursor {
                 // Expand the permissions
                 let prev = NodeStateBwd::unpack(prev);
                 // Insert ownership
-                let ptr = node_helpers::insert_next_ownership(prev, ptr);
+                let (ptr, _) = node_helpers::write_next_permission(prev, ptr);
                 // Pack lifetime
                 let ptr = node_helpers::pack_next_lt::<
                     _,
