@@ -70,7 +70,7 @@ impl<Perm, T> Ptr<Perm, T> {
     }
 
     /// Give a name to the hidden lifetime in a pointer permissions.
-    pub fn with_lt<R>(self, f: impl for<'this> FnOnce(Ptr<Perm::Of<'this>, T>) -> R) -> R
+    pub fn unpack_lt<R>(self, f: impl for<'this> FnOnce(Ptr<Perm::Of<'this>, T>) -> R) -> R
     where
         Perm: PackLt,
     {

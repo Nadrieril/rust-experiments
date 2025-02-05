@@ -106,27 +106,27 @@ mod node_helpers {
         unsafe { ptr.cast_ty() }
     }
     /// Give a name to the hidden lifetime in the permission of the `next` field.
-    pub fn with_next_lt<'this, Perm: HasPointsTo<'this>, Prev, Next: PackLt, R>(
+    pub fn unpack_next_lt<'this, Perm: HasPointsTo<'this>, Prev, Next: PackLt, R>(
         ptr: Ptr<Perm, Node<Prev, Next>>,
         f: impl for<'next> FnOnce(Ptr<Perm, Node<Prev, Next::Of<'next>>>) -> R,
     ) -> R {
         f(unsafe { ptr.cast_ty() })
     }
     /// Hide the name of the lifetime in the permission of the `next` field.
-    pub fn hide_next_lt<'this, 'next, Perm: HasPointsTo<'this>, Prev, Next: PackLt>(
+    pub fn pack_next_lt<'this, 'next, Perm: HasPointsTo<'this>, Prev, Next: PackLt>(
         ptr: Ptr<Perm, Node<Prev, Next::Of<'next>>>,
     ) -> Ptr<Perm, Node<Prev, Next>> {
         unsafe { ptr.cast_ty() }
     }
     /// Give a name to the hidden lifetime in the permission of the `prev` field.
-    pub fn with_prev_lt<'this, Perm: HasPointsTo<'this>, Prev: PackLt, Next, R>(
+    pub fn unpack_prev_lt<'this, Perm: HasPointsTo<'this>, Prev: PackLt, Next, R>(
         ptr: Ptr<Perm, Node<Prev, Next>>,
         f: impl for<'prev> FnOnce(Ptr<Perm, Node<Prev::Of<'prev>, Next>>) -> R,
     ) -> R {
         f(unsafe { ptr.cast_ty() })
     }
     /// Hide the name of the lifetime in the permission of the `prev` field.
-    pub fn hide_prev_lt<'this, 'prev, Perm: HasPointsTo<'this>, Prev: PackLt, Next>(
+    pub fn pack_prev_lt<'this, 'prev, Perm: HasPointsTo<'this>, Prev: PackLt, Next>(
         ptr: Ptr<Perm, Node<Prev::Of<'prev>, Next>>,
     ) -> Ptr<Perm, Node<Prev, Next>> {
         unsafe { ptr.cast_ty() }
@@ -185,12 +185,12 @@ impl ListCursor {
     fn insert_after(self, val: usize) -> Self {
         // self: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
         // Expand the lifetime
-        self.0.with_lt(|ptr| {
+        self.0.unpack_lt(|ptr| {
             // ptr: Ptr<PointsTo<'this, NodeStateCentral<'this>>, Node>
             // Expand the permissions to the fields of `Node`
             let ptr = NodeStateCentral::unpack(ptr);
             // Expand the lifetime
-            node_helpers::with_next_lt(ptr, |ptr| {
+            node_helpers::unpack_next_lt(ptr, |ptr| {
                 // ptr: Ptr<
                 //     PointsTo<'this>,
                 //     Node<
@@ -223,7 +223,7 @@ impl ListCursor {
                     // Update `ptr.next`.
                     let (ptr, _) = node_helpers::write_next(ptr, new);
                     // Pack the `'new` lifetime
-                    node_helpers::hide_next_lt::<
+                    node_helpers::pack_next_lt::<
                         _,
                         PackLt!(<'a> = PointsTo<'a, NodeStateBwd<'a, '_>>),
                         _,
@@ -247,7 +247,7 @@ impl ListCursor {
         };
         // self: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
         // Expand the lifetime
-        self.0.with_lt(|ptr| {
+        self.0.unpack_lt(|ptr| {
             // ptr: Ptr<PointsTo<'this, NodeStateCentral<'this>>, Node>
             // Expand the permissions to the fields of `Node`
             let ptr = NodeStateCentral::unpack(ptr);
@@ -259,7 +259,7 @@ impl ListCursor {
             //     >,
             // >
             // Expand the lifetime
-            node_helpers::with_next_lt(ptr, |ptr| {
+            node_helpers::unpack_next_lt(ptr, |ptr| {
                 // ptr: Ptr<
                 //     PointsTo<'this>,
                 //     Node<
@@ -299,7 +299,7 @@ impl ListCursor {
                 //    >>
                 // >
                 // Pack lifetime
-                let ptr = node_helpers::hide_prev_lt::<
+                let ptr = node_helpers::pack_prev_lt::<
                     _,
                     PackLt!(<'a> = PointsTo<'a, NodeStateBwd<'a, '_>>),
                     _,
@@ -327,11 +327,11 @@ impl ListCursor {
             return Err(self);
         };
         // Expand the lifetime
-        self.0.with_lt(|ptr| {
+        self.0.unpack_lt(|ptr| {
             // Expand the permissions to the fields of `Node`
             let ptr = NodeStateCentral::unpack(ptr);
             // Expand the lifetime
-            node_helpers::with_prev_lt(ptr, |ptr| {
+            node_helpers::unpack_prev_lt(ptr, |ptr| {
                 // Extract the ownership in `prev` (and get a copy of that pointer).
                 let (ptr, prev) = node_helpers::extract_prev_ownership(ptr);
                 // `unwrap` is ok because we checked earlier.
@@ -343,7 +343,7 @@ impl ListCursor {
                 // Insert ownership
                 let ptr = node_helpers::insert_next_ownership(prev, ptr);
                 // Pack lifetime
-                let ptr = node_helpers::hide_next_lt::<
+                let ptr = node_helpers::pack_next_lt::<
                     _,
                     _,
                     PackLt!(<'a> = PointsTo<'a, NodeStateFwd<'a, '_>>),
