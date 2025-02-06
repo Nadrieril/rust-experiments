@@ -30,7 +30,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         Option<Ptr<FieldPerm, Self::FieldTy>>,
     )
     where
-        PtrPerm: HasMut<'this>,
+        PtrPerm: HasPointsTo<'this>,
     {
         let old_field_val = ptr.field_ref().as_ref().map(|new| unsafe { new.copy() });
         *ptr.field_mut() = Some(unsafe { new.cast_perm() });
@@ -46,7 +46,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         Option<Ptr<FieldPerm, Self::FieldTy>>,
     )
     where
-        PtrPerm: HasMut<'this>,
+        PtrPerm: HasPointsTo<'this>,
         FieldPerm: HasWeak<'field>,
         NewPerm: HasWeak<'field>,
     {
@@ -103,7 +103,7 @@ pub fn extract_field_permission<'this, 'field, const F: usize, T, PtrPerm, Field
 )
 where
     T: HasPermField<F, FieldPerm>,
-    PtrPerm: HasMut<'this>,
+    PtrPerm: HasPointsTo<'this>,
     FieldPerm: HasWeak<'field>,
 {
     match ptr
