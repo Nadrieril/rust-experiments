@@ -14,9 +14,8 @@ use permissions::*;
 use ptr::*;
 
 /// `Prev` and `Next` are permissions
-// The permissions are in generics to be able to move permissions around easily. A derive could in
-// principle provide most of the helper functions to manage the permissions of each field, removing
-// the need for users to write unsafe code themselves.
+// The permissions are in generics to be able to move permissions around easily. The `HasPermField`
+// trait helps manage these permissions.
 pub struct Node<Prev = (), Next = ()> {
     val: usize,
     prev: Option<Ptr<Prev, Node>>,
