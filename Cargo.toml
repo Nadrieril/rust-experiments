@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 higher-kinded-types = "0.1.1"
+take_mut = "0.2.2"

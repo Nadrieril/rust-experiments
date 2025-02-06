@@ -208,7 +208,10 @@ impl List {
                 pack_lt(ptr)
             })
         });
-        ListCursor { ptr, list: self }
+        ListCursor {
+            ptr,
+            list: Some(self),
+        }
     }
 
     pub fn iter(&self) -> ListIter<'_> {
@@ -259,7 +262,8 @@ struct ListCursor<'a> {
     ptr: Option<Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>>,
     /// Borrow of the original list. While the cursor exists, the list thinks it's empty. Call
     /// `restore_list` to restore the list to the expected state.
-    list: &'a mut List,
+    /// This is only `None` if we moved the value out, to prevent drop.
+    list: Option<&'a mut List>,
 }
 
 impl ListCursor<'_> {
@@ -276,7 +280,6 @@ impl ListCursor<'_> {
     }
 
     /// Restore the borrowed list after the cursor modifications.
-    // TODO: implement `Drop`
     // TODO: avoid the backward-retraversal of the list.
     // I want to keep the first ptr around for when we're done with the cursor. Can only recover
     // usage of the first pointer if the current state is compatible: need a magic wand.
@@ -287,21 +290,27 @@ impl ListCursor<'_> {
                 Err(first) => break first,
             }
         };
-        let Some(ptr) = first.ptr.take() else { return };
+        let Some(ptr) = first.ptr.take() else {
+            return;
+        };
+        let Some(list) = first.list.take() else {
+            return;
+        };
         ptr.unpack_lt(|ptr| {
             let ptr = NodeStateCentral::unpack(ptr);
             let (ptr, _) = node_helpers::write_prev(ptr, None);
             let ptr = NodeStateFwd::pack(ptr);
             let ptr = pack_lt(ptr);
-            first.list.0 = Some(ptr);
-        })
+            list.0 = Some(ptr);
+        });
     }
 
     fn insert_after(mut self, val: usize) -> Self {
         let Some(ptr) = self.ptr.take() else {
             // The original list was empty.
-            self.list.prepend(val);
-            return self.list.cursor();
+            let list = self.list.take().unwrap();
+            list.prepend(val);
+            return list.cursor();
         };
         // self: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
         // Expand the lifetime
@@ -332,7 +341,7 @@ impl ListCursor<'_> {
                 // ptr: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
                 Self {
                     ptr: Some(ptr),
-                    list: self.list,
+                    list: self.list.take(),
                 }
             })
         })
@@ -416,7 +425,7 @@ impl ListCursor<'_> {
                 // ptr: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
                 Ok(Self {
                     ptr: Some(ptr),
-                    list: self.list,
+                    list: self.list.take(),
                 })
             })
         })
@@ -458,18 +467,27 @@ impl ListCursor<'_> {
                 let ptr = pack_lt(ptr);
                 Ok(Self {
                     ptr: Some(ptr),
-                    list: self.list,
+                    list: self.list.take(),
                 })
             })
         })
     }
 }
 
-// impl Drop for ListCursor<'_> {
-//     fn drop(&mut self) {
-//         self.drop();
-//     }
-// }
+impl Drop for ListCursor<'_> {
+    fn drop(&mut self) {
+        if self.list.is_none() {
+            return;
+        }
+        take_mut::take(self, |this| {
+            this.restore_list();
+            ListCursor {
+                ptr: None,
+                list: None,
+            }
+        })
+    }
+}
 
 pub fn main() {
     let mut list = List::new();
@@ -489,9 +507,9 @@ pub fn main() {
     let cursor = cursor.prev().unwrap();
     println!("{}", cursor.val().unwrap());
     let cursor = cursor.next().unwrap();
-    cursor.restore_list();
-    // TODO: drop
-    // TODO: iter_mut
+    drop(cursor);
 
     assert_eq!(list.iter().copied().collect::<Vec<_>>(), vec![0, 1, 2]);
+    // TODO: list drop
+    // TODO: iter_mut
 }
