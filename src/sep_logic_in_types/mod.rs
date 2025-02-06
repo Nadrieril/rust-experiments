@@ -139,6 +139,48 @@ impl<'this> PackedPredicate<'this, Node> for NodeStateCentral<'this> {
         Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
 }
 
+mod list_helpers {
+    use super::fields::*;
+    use super::permissions::*;
+    use super::ptr::*;
+    use super::Node;
+    use super::*;
+    use higher_kinded_types::ForLt as PackLt;
+
+    /// Allocates a new node with the given value. This can either take a `next` node before
+    /// which to insert the node, or a `prev` pointer to give to the new node. This ensures
+    /// that proper `prev` discipline is preserved.
+    pub fn prepend_inner<'this, 'prev>(
+        next_or_prev: Result<
+            Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+            Ptr<Weak<'prev>, Node>,
+        >,
+        val: usize,
+    ) -> Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+        // We need to allocate a new node at address `'new` that can have `'new` in
+        // its type, hence the need for a closure like this. We must pack the `'new`
+        // brand before returning.
+        type ToAlloc<'prev> =
+            PackLt!(<NodeStateFwd<'_, 'prev> as PackedPredicate<'_, Node>>::Unpacked);
+        Ptr::new_uninit_cyclic::<ToAlloc<'_>, _>(|new| {
+            // Update `next.prev` to point to `new`.
+            let (prev, next) = match next_or_prev {
+                Ok(next) => {
+                    let next = NodeStateFwd::unpack(next);
+                    let (next, prev) = node_helpers::write_prev(next, new.weak_ref());
+                    let next = NodeStateFwd::pack(next);
+                    (prev, Some(pack_lt(next)))
+                }
+                Err(prev) => (Some(prev), None),
+            };
+            // Allocate a new node whose `next` field is `next`.
+            let new = NodeStateFwd::pack(new.write(Node { val, prev, next }));
+            // Pack the `'new` lifetime
+            pack_lt(new)
+        })
+    }
+}
+
 #[derive(Debug)]
 struct ListCursor(Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>);
 
@@ -183,32 +225,11 @@ impl ListCursor {
                 //     >,
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
-                let (ptr, next) = extract_field_permission(ptr);
-                // We need to allocate a new node at address `'new` that can have `'new` in
-                // its type, hence the need for a closure like this. We must pack the `'new`
-                // brand before returning.
-                type ToAlloc<'prev> =
-                    PackLt!(<NodeStateFwd<'_, 'prev> as PackedPredicate<'_, Node>>::Unpacked);
-                let ptr = Ptr::new_uninit_cyclic::<ToAlloc<'_>, _>(|new| {
-                    // Update `next.prev` to point to `new`.
-                    let next = next.map(|next| {
-                        let next = NodeStateFwd::unpack(next);
-                        let (next, _) = node_helpers::write_prev(next, new.weak_ref());
-                        let next = NodeStateFwd::pack(next);
-                        pack_lt(next)
-                    });
-                    // Allocate a new node whose `prev` field is `ptr` and `next` field is
-                    // `next`.
-                    let new = NodeStateFwd::pack(new.write(Node {
-                        val,
-                        prev: Some(ptr.weak_ref()),
-                        next,
-                    }));
-                    // Update `ptr.next`.
-                    let (ptr, _) = node_helpers::write_next(ptr, new);
-                    // Pack the `'new` lifetime
-                    node_helpers::pack_next_lt(ptr)
-                });
+                let (ptr, next) = extract_field_permission::<1, _, _, _>(ptr);
+                let next_or_prev = next.ok_or(ptr.weak_ref());
+                let new = list_helpers::prepend_inner(next_or_prev, val);
+                // Update `ptr.next`.
+                let (ptr, _) = node_helpers::write_next(ptr, new);
                 // Unexpand permissions
                 let ptr = NodeStateCentral::pack(ptr);
                 // ptr: Ptr<PointsTo<'next, NodeStateCentral<'next>>, Node>
