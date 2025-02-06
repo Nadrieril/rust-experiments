@@ -123,7 +123,9 @@ pub trait PackedPredicate<'this, Ty>: Sized {
     type Unpacked: EraseNestedPerms<Erased = Ty>;
     /// Given a pointer with `Self` permission, turn it into a pointer to the type with permissions
     /// applied.
-    fn unpack(ptr: Ptr<Own<'this, Self>, Ty>) -> Ptr<Own<'this>, Self::Unpacked> {
+    fn unpack<Perm>(
+        ptr: Ptr<PointsTo<'this, Perm, Self>, Ty>,
+    ) -> Ptr<PointsTo<'this, Perm>, Self::Unpacked> {
         // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
         // types) so the two types are layout-compatible. Since the definition of `Self` as a
         // predicate is the effect of this function, this is definitionally a correct cast wrt
@@ -131,7 +133,9 @@ pub trait PackedPredicate<'this, Ty>: Sized {
         unsafe { ptr.cast_perm().cast_ty() }
     }
     /// Reverse of `unpack`.
-    fn pack(ptr: Ptr<Own<'this>, Self::Unpacked>) -> Ptr<Own<'this, Self>, Ty> {
+    fn pack<Perm>(
+        ptr: Ptr<PointsTo<'this, Perm>, Self::Unpacked>,
+    ) -> Ptr<PointsTo<'this, Perm, Self>, Ty> {
         // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
         // types) so the two types are layout-compatible. Since the definition of `Self` as a
         // predicate is the effect of this function, this is definitionally a correct cast wrt
