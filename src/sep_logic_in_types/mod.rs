@@ -51,14 +51,14 @@ mod node_helpers {
     use higher_kinded_types::ForLt as PackLt;
 
     /// Writes the given pointer into `ptr.next`.
-    pub fn write_next<'this, Perm: HasPointsTo<'this>, Prev, OldNext, Next>(
+    pub fn write_next<'this, Perm: HasOwn<'this>, Prev, OldNext, Next>(
         ptr: Ptr<Perm, Node<Prev, OldNext>>,
         next: Option<Ptr<Next, Node>>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldNext, Node>>) {
         Node::write_field(ptr, next)
     }
     /// Writes the given pointer into `ptr.prev`.
-    pub fn write_prev<'this, Perm: HasPointsTo<'this>, OldPrev, Prev, Next>(
+    pub fn write_prev<'this, Perm: HasOwn<'this>, OldPrev, Prev, Next>(
         ptr: Ptr<Perm, Node<OldPrev, Next>>,
         prev: Option<Ptr<Prev, Node>>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldPrev, Node>>) {
@@ -71,7 +71,7 @@ mod node_helpers {
         next: Ptr<Next, Node>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldNext, Node>>)
     where
-        Perm: HasPointsTo<'this>,
+        Perm: HasOwn<'this>,
         OldNext: HasWeak<'next>,
         Next: HasWeak<'next>,
     {
@@ -83,7 +83,7 @@ mod node_helpers {
         prev: Ptr<Prev, Node>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldPrev, Node>>)
     where
-        Perm: HasPointsTo<'this>,
+        Perm: HasOwn<'this>,
         OldPrev: HasWeak<'prev>,
         Prev: HasWeak<'prev>,
     {

@@ -30,7 +30,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         Option<Ptr<FieldPerm, Self::FieldTy>>,
     )
     where
-        PtrPerm: HasPointsTo<'this>,
+        PtrPerm: HasOwn<'this>,
     {
         let old_field_val = ptr
             .field_ref()
@@ -49,7 +49,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         Option<Ptr<FieldPerm, Self::FieldTy>>,
     )
     where
-        PtrPerm: HasPointsTo<'this>,
+        PtrPerm: HasOwn<'this>,
         FieldPerm: HasWeak<'field>,
         NewPerm: HasWeak<'field>,
     {
@@ -109,13 +109,13 @@ pub fn extract_field_permission<'this, 'field, const F: usize, T, PtrPerm, Field
 )
 where
     T: HasPermField<F, FieldPerm>,
-    PtrPerm: HasPointsTo<'this>,
+    PtrPerm: HasOwn<'this>,
     FieldPerm: HasWeak<'field>,
 {
     match ptr
         .field_ref()
         .as_ref()
-        .map(|next| next.weak_ref_no_erase())
+        .map(|next| next.weak_ref_no_erase().erase_pred())
     {
         Some(weak) => T::write_field_permission(ptr, weak),
         None => (T::downgrade_field_permission(ptr), None),
@@ -136,7 +136,7 @@ pub trait PackedPredicate<'this, Ty>: Sized {
         // types) so the two types are layout-compatible. Since the definition of `Self` as a
         // predicate is the effect of this function, this is definitionally a correct cast wrt
         // permissions.
-        unsafe { ptr.cast_perm().cast_ty() }
+        unsafe { ptr.cast_pred().cast_ty() }
     }
     /// Reverse of `unpack`.
     fn pack<Perm>(
@@ -146,6 +146,6 @@ pub trait PackedPredicate<'this, Ty>: Sized {
         // types) so the two types are layout-compatible. Since the definition of `Self` as a
         // predicate is the effect of this function, this is definitionally a correct cast wrt
         // permissions.
-        unsafe { ptr.cast_perm().cast_ty() }
+        unsafe { ptr.cast_pred().cast_ty() }
     }
 }

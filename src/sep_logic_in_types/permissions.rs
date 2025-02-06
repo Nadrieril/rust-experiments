@@ -34,6 +34,11 @@ pub type Read<'this, 'a, Pred = ()> = PointsTo<'this, PRead<'a>, Pred>;
 pub struct PNone;
 pub type Weak<'this, Pred = ()> = PointsTo<'this, PNone, Pred>;
 
+/// Full ownership to a location with uninitialized data. Can be written to to get a normal owned
+/// pointer.
+pub struct PUninitOwned;
+pub type UninitOwned<'this, Pred = ()> = PointsTo<'this, PUninitOwned, Pred>;
+
 impl<T> Ptr<PackLt!(Own<'_>), T> {
     #[expect(unused)]
     pub fn new(val: T) -> Self {
@@ -46,9 +51,6 @@ impl<T> Ptr<PackLt!(Own<'_>), T> {
         *unsafe { Box::from_non_null(self.as_non_null()) }
     }
 }
-
-/// A location that once written to we have ownership to.
-pub struct UninitOwned<'this>(InvariantLifetime<'this>);
 
 impl<T> Ptr<PackLt!(UninitOwned<'_>), T> {
     #[expect(unused)]
@@ -73,16 +75,32 @@ impl Ptr<(), ()> {
 impl<'this, T> Ptr<UninitOwned<'this>, T> {
     pub fn write(self, val: T) -> Ptr<Own<'this>, T> {
         unsafe { self.as_non_null().write(val) };
-        unsafe { self.cast_perm() }
+        unsafe { self.cast_access() }
     }
 }
 
-pub unsafe trait HasPointsTo<'this> {}
-unsafe impl<'this, Perm> HasPointsTo<'this> for Own<'this, Perm> {}
+pub unsafe trait IsPointsTo: Sized {
+    type Pred;
+    type Access;
+}
+unsafe impl<'this, Access, Pred> IsPointsTo for PointsTo<'this, Access, Pred> {
+    type Pred = Pred;
+    type Access = Access;
+}
 
-pub unsafe trait HasMut<'this> {}
-unsafe impl<'this, T: HasPointsTo<'this>> HasMut<'this> for T {}
-unsafe impl<'this, Perm> HasMut<'this> for Mut<'this, '_, Perm> {}
+pub unsafe trait HasOwn<'this>: HasWeak<'this> {}
+unsafe impl<'this, Pred> HasOwn<'this> for Own<'this, Pred> {}
+
+pub unsafe trait HasMut<'this>: HasWeak<'this> {}
+unsafe impl<'this, T: HasOwn<'this>> HasMut<'this> for T {}
+unsafe impl<'this, Pred> HasMut<'this> for Mut<'this, '_, Pred> {}
+
+pub unsafe trait HasRead<'this>: HasWeak<'this> {}
+unsafe impl<'this, T: HasMut<'this>> HasRead<'this> for T {}
+unsafe impl<'this, Pred> HasRead<'this> for Read<'this, '_, Pred> {}
+
+pub unsafe trait HasWeak<'this>: IsPointsTo {}
+unsafe impl<'this, Access, Pred> HasWeak<'this> for PointsTo<'this, Access, Pred> {}
 
 impl<'this, 'a, Perm, T> Ptr<Mut<'this, 'a, Perm>, T> {
     pub fn into_deref_mut(self) -> &'a mut T {
@@ -97,10 +115,6 @@ impl<'this, Perm: HasMut<'this>, T> DerefMut for Ptr<Perm, T> {
     }
 }
 
-pub unsafe trait HasRead<'this> {}
-unsafe impl<'this, T: HasMut<'this>> HasRead<'this> for T {}
-unsafe impl<'this, Perm> HasRead<'this> for Read<'this, '_, Perm> {}
-
 impl<'this, 'a, Perm, T> Ptr<Read<'this, 'a, Perm>, T> {
     pub fn deref(&self) -> &'a T {
         // Safety: we have `Read` permission for `'a`.
@@ -114,8 +128,3 @@ impl<'this, Perm: HasRead<'this>, T> Deref for Ptr<Perm, T> {
         unsafe { self.as_non_null().as_ref() }
     }
 }
-
-pub unsafe trait HasWeak<'this>: Sized {}
-unsafe impl<'this, T: HasRead<'this>> HasWeak<'this> for T {}
-unsafe impl<'this> HasWeak<'this> for Weak<'this> {}
-unsafe impl<'this> HasWeak<'this> for UninitOwned<'this> {}

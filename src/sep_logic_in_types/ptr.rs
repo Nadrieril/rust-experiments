@@ -30,12 +30,25 @@ impl<Perm, T> Ptr<Perm, T> {
             pred: PhantomData,
         }
     }
-
     pub unsafe fn cast_ty<U>(self) -> Ptr<Perm, U> {
         Ptr {
             ptr: self.ptr.cast(),
             pred: PhantomData,
         }
+    }
+    pub unsafe fn cast_access<'this, NewPerm>(self) -> Ptr<NewPerm, T>
+    where
+        Perm: IsPointsTo + HasWeak<'this>,
+        NewPerm: IsPointsTo<Pred = Perm::Pred> + HasWeak<'this>,
+    {
+        unsafe { self.cast_perm() }
+    }
+    pub unsafe fn cast_pred<'this, NewPerm>(self) -> Ptr<NewPerm, T>
+    where
+        Perm: IsPointsTo + HasWeak<'this>,
+        NewPerm: IsPointsTo<Access = Perm::Access> + HasWeak<'this>,
+    {
+        unsafe { self.cast_perm() }
     }
 
     pub unsafe fn unsafe_copy(&self) -> Self {
@@ -45,14 +58,14 @@ impl<Perm, T> Ptr<Perm, T> {
         }
     }
 
-    pub fn weak_ref_no_erase<'this>(&self) -> Ptr<Weak<'this>, T>
+    pub fn weak_ref_no_erase<'this>(&self) -> Ptr<Weak<'this, Perm::Pred>, T>
     where
         Perm: HasWeak<'this>,
     {
-        unsafe { self.unsafe_copy().cast_perm() }
+        unsafe { self.unsafe_copy().cast_access() }
     }
 
-    pub fn weak_ref<'this>(&self) -> Ptr<Weak<'this>, T::Erased>
+    pub fn weak_ref<'this>(&self) -> Ptr<Weak<'this, Perm::Pred>, T::Erased>
     where
         Perm: HasWeak<'this>,
         T: EraseNestedPerms,
@@ -67,6 +80,13 @@ impl<Perm, T> Ptr<Perm, T> {
         T::erase_nested_perms(self)
     }
 
+    pub fn erase_pred<'this>(self) -> Ptr<PointsTo<'this, Perm::Access>, T>
+    where
+        Perm: HasWeak<'this>,
+    {
+        unsafe { self.cast_pred() }
+    }
+
     /// Give a name to the hidden lifetime in a pointer permissions.
     pub fn unpack_lt<R>(self, f: impl for<'this> FnOnce(Ptr<Perm::Of<'this>, T>) -> R) -> R
     where
@@ -77,7 +97,7 @@ impl<Perm, T> Ptr<Perm, T> {
     /// Give a name to the hidden lifetime in a pointer permissions.
     pub fn unpack_lt_ref<'a, R>(
         &'a self,
-        f: impl for<'this> FnOnce(Ptr<Read<'this, 'a>, T>) -> R,
+        f: impl for<'this> FnOnce(Ptr<Read<'this, 'a, <Perm::Of<'this> as IsPointsTo>::Pred>, T>) -> R,
     ) -> R
     where
         Perm: PackLt,
@@ -88,7 +108,7 @@ impl<Perm, T> Ptr<Perm, T> {
     /// Give a name to the hidden lifetime in a pointer permissions.
     pub fn unpack_lt_mut<'a, R>(
         &'a mut self,
-        f: impl for<'this> FnOnce(Ptr<Mut<'this, 'a>, T>) -> R,
+        f: impl for<'this> FnOnce(Ptr<Mut<'this, 'a, <Perm::Of<'this> as IsPointsTo>::Pred>, T>) -> R,
     ) -> R
     where
         Perm: PackLt,
