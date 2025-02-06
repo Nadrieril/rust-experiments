@@ -121,28 +121,26 @@ mod node_helpers {
 /// A linked list with backward pointers, with ownership that follows the forward pointers.
 pub struct NodeStateFwd<'this, 'prev>(InvariantLifetime<'this>, InvariantLifetime<'prev>);
 impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
-    type Unpacked = Node<Weak<'prev>, PackLt!(PointsTo<'_, NodeStateFwd<'_, 'this>>)>;
+    type Unpacked = Node<Weak<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
 }
 
 /// Like `NodeStateFwd` except flipping the fields of `Node` (the "forward" pointer is in the
 /// `Node.prev` field instead).
 pub struct NodeStateBwd<'this, 'next>(InvariantLifetime<'this>, InvariantLifetime<'next>);
 impl<'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'this, 'next> {
-    type Unpacked = Node<PackLt!(PointsTo<'_, NodeStateBwd<'_, 'this>>), Weak<'next>>;
+    type Unpacked = Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), Weak<'next>>;
 }
 
 /// A Node whose `prev` and `next` fields are each a forward-owned linked list with back-edges.
 /// This functions as a doubly-linked-list zipper.
 pub struct NodeStateCentral<'this>(InvariantLifetime<'this>);
 impl<'this> PackedPredicate<'this, Node> for NodeStateCentral<'this> {
-    type Unpacked = Node<
-        PackLt!(PointsTo<'_, NodeStateBwd<'_, 'this>>),
-        PackLt!(PointsTo<'_, NodeStateFwd<'_, 'this>>),
-    >;
+    type Unpacked =
+        Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
 }
 
 #[derive(Debug)]
-struct ListCursor(Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>);
+struct ListCursor(Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>);
 
 impl ListCursor {
     pub fn new(val: usize) -> Self {
@@ -324,7 +322,7 @@ impl ListCursor {
                 let ptr = node_helpers::pack_next_lt::<
                     _,
                     _,
-                    PackLt!(<'a> = PointsTo<'a, NodeStateFwd<'a, '_>>),
+                    PackLt!(<'a> = Own<'a, NodeStateFwd<'a, '_>>),
                 >(ptr);
                 // Unexpand permissions
                 let ptr = NodeStateCentral::pack(ptr);

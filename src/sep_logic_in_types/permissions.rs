@@ -9,7 +9,7 @@ use std::{
 /// The separation logic points-to (unique ownership), with a predicate on the pointed-to value.
 /// The `'this` lifetime brand denotes the pointer address. This can be paired with some `Weak`
 /// pointers with the same brand to statically track that they have the same address.
-pub struct PointsTo<'this, Pred = ()>(PhantomData<Pred>, InvariantLifetime<'this>);
+pub struct Own<'this, Pred = ()>(PhantomData<Pred>, InvariantLifetime<'this>);
 
 /// Read/write access, with a predicate on the pointed-to value. This allowd writing to the
 /// underlying values but not changing types; in particular this can't change the list
@@ -30,7 +30,7 @@ pub struct Read<'this, 'a, Pred = ()>(
 /// A pointer with no permissions, known to be equal to 'this.
 pub struct Weak<'this>(InvariantLifetime<'this>);
 
-impl<T> Ptr<PackLt!(PointsTo<'_>), T> {
+impl<T> Ptr<PackLt!(Own<'_>), T> {
     #[expect(unused)]
     pub fn new(val: T) -> Self {
         let non_null = Box::into_non_null(Box::new(val));
@@ -67,14 +67,14 @@ impl Ptr<(), ()> {
 }
 
 impl<'this, T> Ptr<UninitOwned<'this>, T> {
-    pub fn write(self, val: T) -> Ptr<PointsTo<'this>, T> {
+    pub fn write(self, val: T) -> Ptr<Own<'this>, T> {
         unsafe { self.as_non_null().write(val) };
         unsafe { self.cast_perm() }
     }
 }
 
 pub unsafe trait HasPointsTo<'this> {}
-unsafe impl<'this, Perm> HasPointsTo<'this> for PointsTo<'this, Perm> {}
+unsafe impl<'this, Perm> HasPointsTo<'this> for Own<'this, Perm> {}
 
 pub unsafe trait HasMut<'this> {}
 unsafe impl<'this, T: HasPointsTo<'this>> HasMut<'this> for T {}
