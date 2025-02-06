@@ -37,7 +37,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         Option<Ptr<FieldPerm, Self::FieldTy>>,
     )
     where
-        PtrPerm: HasPointsTo<'this>,
+        PtrPerm: HasMut<'this>,
     {
         let old_field_val = ptr.field_ref().as_ref().map(|new| unsafe { new.copy() });
         *ptr.field_mut() = Some(unsafe { new.cast_perm() });
@@ -53,7 +53,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         Option<Ptr<FieldPerm, Self::FieldTy>>,
     )
     where
-        PtrPerm: HasPointsTo<'this>,
+        PtrPerm: HasMut<'this>,
         FieldPerm: HasWeak<'field>,
         NewPerm: HasWeak<'field>,
     {
@@ -82,7 +82,6 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         f: impl for<'field> FnOnce(Ptr<PtrPerm, Self::ChangePerm<FieldPerm::Of<'field>>>) -> R,
     ) -> R
     where
-        PtrPerm: HasPointsTo<'this>,
         FieldPerm: PackLt,
     {
         // Safety: the higher-ranked type + invariant lifetimes hopefully ensures the identifier is
@@ -95,7 +94,6 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         ptr: Ptr<PtrPerm, Self::ChangePerm<FieldPerm::Of<'field>>>,
     ) -> Ptr<PtrPerm, Self>
     where
-        PtrPerm: HasPointsTo<'this>,
         FieldPerm: PackLt,
     {
         unsafe { ptr.cast_ty() }
@@ -112,7 +110,7 @@ pub fn extract_field_permission<'this, 'field, const F: usize, T, PtrPerm, Field
 )
 where
     T: HasPermField<F, FieldPerm>,
-    PtrPerm: HasPointsTo<'this>,
+    PtrPerm: HasMut<'this>,
     FieldPerm: HasWeak<'field>,
 {
     match ptr
