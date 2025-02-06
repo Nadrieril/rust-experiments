@@ -32,7 +32,10 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
     where
         PtrPerm: HasPointsTo<'this>,
     {
-        let old_field_val = ptr.field_ref().as_ref().map(|new| unsafe { new.copy() });
+        let old_field_val = ptr
+            .field_ref()
+            .as_ref()
+            .map(|new| unsafe { new.unsafe_copy() });
         *ptr.field_mut() = new.map(|new| unsafe { new.cast_perm() });
         let new_ptr = unsafe { ptr.cast_ty() };
         (new_ptr, old_field_val)
@@ -50,7 +53,10 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         FieldPerm: HasWeak<'field>,
         NewPerm: HasWeak<'field>,
     {
-        let old_field_val = ptr.field_ref().as_ref().map(|new| unsafe { new.copy() });
+        let old_field_val = ptr
+            .field_ref()
+            .as_ref()
+            .map(|new| unsafe { new.unsafe_copy() });
         // Safety: this has the same operation as `write_field`, except we don't need to
         // actually write to memory because the `'field` brand ensures the pointer values are
         // already equal.

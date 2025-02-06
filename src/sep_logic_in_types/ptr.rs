@@ -38,7 +38,7 @@ impl<Perm, T> Ptr<Perm, T> {
         }
     }
 
-    pub unsafe fn copy(&self) -> Self {
+    pub unsafe fn unsafe_copy(&self) -> Self {
         Ptr {
             ptr: self.ptr,
             pred: PhantomData,
@@ -49,7 +49,7 @@ impl<Perm, T> Ptr<Perm, T> {
     where
         Perm: HasWeak<'this>,
     {
-        unsafe { self.copy().cast_perm() }
+        unsafe { self.unsafe_copy().cast_perm() }
     }
 
     pub fn weak_ref<'this>(&self) -> Ptr<Weak<'this>, T::Erased>
@@ -83,7 +83,7 @@ impl<Perm, T> Ptr<Perm, T> {
         Perm: PackLt,
         for<'this> Perm::Of<'this>: HasRead<'this>,
     {
-        f(unsafe { self.copy().cast_perm() })
+        f(unsafe { self.unsafe_copy().cast_perm() })
     }
     /// Give a name to the hidden lifetime in a pointer permissions.
     pub fn with_lt_mut<'a, R>(
@@ -94,7 +94,7 @@ impl<Perm, T> Ptr<Perm, T> {
         Perm: PackLt,
         for<'this> Perm::Of<'this>: HasMut<'this>,
     {
-        f(unsafe { self.copy().cast_perm() })
+        f(unsafe { self.unsafe_copy().cast_perm() })
     }
 }
 
