@@ -58,6 +58,21 @@ impl<Perm, T> Ptr<Perm, T> {
         }
     }
 
+    pub fn copy_read<'this>(&self) -> Ptr<Read<'this, '_, Perm::Pred>, T>
+    where
+        Perm: HasRead<'this>,
+    {
+        unsafe { self.unsafe_copy().cast_access() }
+    }
+
+    #[expect(unused)]
+    pub fn copy_mut<'this>(&mut self) -> Ptr<Mut<'this, '_, Perm::Pred>, T>
+    where
+        Perm: HasMut<'this>,
+    {
+        unsafe { self.unsafe_copy().cast_access() }
+    }
+
     pub fn weak_ref_no_erase<'this>(&self) -> Ptr<Weak<'this, Perm::Pred>, T>
     where
         Perm: HasWeak<'this>,

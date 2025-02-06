@@ -21,6 +21,17 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
     fn field_ref(&self) -> &Option<Ptr<FieldPerm, Self::FieldTy>>;
     fn field_mut(&mut self) -> &mut Option<Ptr<FieldPerm, Self::FieldTy>>;
 
+    fn read_field<'this, 'field, 'a, Pred>(
+        ptr: Ptr<Read<'this, 'a, Pred>, Self>,
+    ) -> Option<Ptr<Read<'field, 'a, FieldPerm::Pred>, Self::FieldTy>>
+    where
+        FieldPerm: HasRead<'field>,
+    {
+        ptr.deref()
+            .field_ref()
+            .as_ref()
+            .map(|ptr| unsafe { ptr.copy_read().cast_access() })
+    }
     /// Writes the given pointer into the field.
     fn write_field<'this, PtrPerm, NewPerm>(
         mut ptr: Ptr<PtrPerm, Self>,
