@@ -1,11 +1,9 @@
 use super::ptr::*;
 use higher_kinded_types::ForLt as PackLt;
 use std::{
-    fmt::Debug,
     marker::PhantomData,
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
-    ptr::NonNull,
 };
 
 /// The separation logic points-to (unique ownership), with a predicate on the pointed-to value.
@@ -33,19 +31,15 @@ pub struct Read<'this, 'a, Pred = ()>(
 pub struct Weak<'this>(InvariantLifetime<'this>);
 
 impl<T> Ptr<PackLt!(PointsTo<'_>), T> {
+    #[expect(unused)]
     pub fn new(val: T) -> Self {
         let non_null = Box::into_non_null(Box::new(val));
         unsafe { Ptr::from_non_null(non_null) }
     }
+    #[expect(unused)]
     pub fn into_inner(self) -> T {
         // Safety: we have points-to access.
         *unsafe { Box::from_non_null(self.as_non_null()) }
-    }
-}
-
-impl<T, Perm> Ptr<PackLt!(PointsTo<'_, Perm>), T> {
-    pub fn forget_permissions(self) -> Ptr<PackLt!(PointsTo<'_>), T> {
-        unsafe { self.cast_perm() }
     }
 }
 
@@ -53,9 +47,9 @@ impl<T, Perm> Ptr<PackLt!(PointsTo<'_, Perm>), T> {
 pub struct UninitOwned<'this>(InvariantLifetime<'this>);
 
 impl<T> Ptr<PackLt!(UninitOwned<'_>), T> {
+    #[expect(unused)]
     pub fn new_uninit() -> Self {
-        let non_null = Box::into_non_null(Box::<MaybeUninit<T>>::new_uninit()).cast::<T>();
-        unsafe { Self::from_non_null(non_null) }
+        Ptr::new_uninit_cyclic::<PackLt!(T), _>(|ptr| pack_lt(ptr))
     }
 }
 
@@ -87,7 +81,7 @@ unsafe impl<'this, T: HasPointsTo<'this>> HasMut<'this> for T {}
 unsafe impl<'this, Perm> HasMut<'this> for Mut<'this, '_, Perm> {}
 
 impl<'this, 'a, Perm, T> Ptr<Mut<'this, 'a, Perm>, T> {
-    pub fn into_deref_mut(mut self) -> &'a mut T {
+    pub fn into_deref_mut(self) -> &'a mut T {
         // Safety: we have `Mut` permission for `'a`.
         unsafe { self.as_non_null().as_mut() }
     }
@@ -117,11 +111,7 @@ impl<'this, Perm: HasRead<'this>, T> Deref for Ptr<Perm, T> {
     }
 }
 
-pub unsafe trait HasWeak<'this>: Sized {
-    fn weaken<T>(ptr: &Ptr<Self, T>) -> Ptr<Weak<'this>, T> {
-        unsafe { ptr.copy().cast_perm() }
-    }
-}
+pub unsafe trait HasWeak<'this>: Sized {}
 unsafe impl<'this, T: HasRead<'this>> HasWeak<'this> for T {}
 unsafe impl<'this> HasWeak<'this> for Weak<'this> {}
 unsafe impl<'this> HasWeak<'this> for UninitOwned<'this> {}

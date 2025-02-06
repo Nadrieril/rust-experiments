@@ -1,12 +1,5 @@
 use super::*;
 use higher_kinded_types::ForLt as PackLt;
-use std::{
-    fmt::Debug,
-    marker::PhantomData,
-    mem::MaybeUninit,
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-};
 
 /// Safety: `Self` and `Target` are the same modulo predicates in `Ptr`, and the predicates in
 /// `Self` imply the corresponding predicates in `Target`.
@@ -46,8 +39,8 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
     }
     /// Like `write_field` but only moves permissions around. Does not write to memory.
     fn write_field_permission<'this, 'field, PtrPerm, NewPerm>(
-        mut ptr: Ptr<PtrPerm, Self>,
-        new: Ptr<NewPerm, Self::FieldTy>,
+        ptr: Ptr<PtrPerm, Self>,
+        _new: Ptr<NewPerm, Self::FieldTy>,
     ) -> (
         Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
         Option<Ptr<FieldPerm, Self::FieldTy>>,

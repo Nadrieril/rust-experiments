@@ -1,12 +1,6 @@
 use super::*;
 use higher_kinded_types::ForLt as PackLt;
-use std::{
-    fmt::Debug,
-    marker::PhantomData,
-    mem::MaybeUninit,
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-};
+use std::{fmt::Debug, marker::PhantomData, ptr::NonNull};
 
 // Copied from `ghost_cell`.
 pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
@@ -63,10 +57,6 @@ impl<Perm, T> Ptr<Perm, T> {
         T: EraseNestedPerms,
     {
         self.weak_ref_no_erase().erase_target_perms()
-    }
-
-    pub fn noperm(&self) -> Ptr<(), T> {
-        unsafe { self.copy().cast_perm() }
     }
 
     pub fn erase_target_perms(self) -> Ptr<Perm, T::Erased>

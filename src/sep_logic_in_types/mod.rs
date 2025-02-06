@@ -1,10 +1,4 @@
-#![allow(unused)]
 use higher_kinded_types::ForLt as PackLt;
-use std::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-};
 
 mod fields;
 mod permissions;
@@ -55,22 +49,17 @@ mod node_helpers {
     use super::ptr::*;
     use super::Node;
     use higher_kinded_types::ForLt as PackLt;
-    use std::{
-        marker::PhantomData,
-        ops::{Deref, DerefMut},
-        ptr::NonNull,
-    };
 
     /// Writes the given pointer into `ptr.next`.
     pub fn write_next<'this, Perm: HasMut<'this>, Prev, OldNext, Next>(
-        mut ptr: Ptr<Perm, Node<Prev, OldNext>>,
+        ptr: Ptr<Perm, Node<Prev, OldNext>>,
         next: Ptr<Next, Node>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldNext, Node>>) {
         Node::write_field(ptr, next)
     }
     /// Writes the given pointer into `ptr.prev`.
     pub fn write_prev<'this, Perm: HasMut<'this>, OldPrev, Prev, Next>(
-        mut ptr: Ptr<Perm, Node<OldPrev, Next>>,
+        ptr: Ptr<Perm, Node<OldPrev, Next>>,
         prev: Ptr<Prev, Node>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldPrev, Node>>) {
         <Node<_, _> as HasPermField<0, _>>::write_field(ptr, prev)
@@ -99,25 +88,6 @@ mod node_helpers {
         Prev: HasWeak<'prev>,
     {
         <Node<_, _> as HasPermField<0, _>>::write_field_permission(ptr, prev)
-    }
-
-    /// Downgrade the permission in `next`.
-    pub fn downgrade_next_ownership<'this, 'next, Perm, Prev, Next>(
-        ptr: Ptr<Perm, Node<Prev, Next>>,
-    ) -> Ptr<Perm, Node<Prev, Weak<'next>>>
-    where
-        Next: HasWeak<'next>,
-    {
-        <Node<_, _> as HasPermField<1, _>>::downgrade_field_permission(ptr)
-    }
-    /// Downgrade the permission in `prev`.
-    pub fn downgrade_prev_ownership<'this, 'next, Perm, Prev, Next>(
-        ptr: Ptr<Perm, Node<Prev, Next>>,
-    ) -> Ptr<Perm, Node<Weak<'next>, Next>>
-    where
-        Prev: HasWeak<'next>,
-    {
-        <Node<_, _> as HasPermField<0, _>>::downgrade_field_permission(ptr)
     }
 
     /// Give a name to the hidden lifetime in the permission of the `next` field.
@@ -193,6 +163,7 @@ impl ListCursor {
     fn val(&self) -> &usize {
         self.0.with_lt_ref(|ptr| &ptr.deref().val)
     }
+    #[expect(unused)]
     fn val_mut(&mut self) -> &mut usize {
         self.0.with_lt_mut(|ptr| &mut ptr.into_deref_mut().val)
     }
