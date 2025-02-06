@@ -199,13 +199,13 @@ impl List {
         self.0 = Some(new);
     }
 
-    pub fn into_cursor(mut self) -> Option<ListCursor> {
+    pub fn cursor(&mut self) -> Option<ListCursor<'_>> {
         self.0.take()?.unpack_lt(|ptr| {
             let ptr = NodeStateFwd::unpack(ptr);
             let (ptr, _) = node_helpers::write_prev(ptr, None);
             let ptr = NodeStateCentral::pack(ptr);
             let ptr = pack_lt(ptr);
-            Some(ListCursor(ptr))
+            Some(ListCursor { ptr, list: self })
         })
     }
 
@@ -252,23 +252,61 @@ impl<'a> Iterator for ListIter<'a> {
         })
     }
 }
+// TODO: want to insert mid-list and release the borrow without traversing backwards
+// is a mut borrow like a magic wand?
+//
+// ok: I want to go list->cursor while keeping the first ptr around for when we're done with the
+// cursor.
+// obvious move: mut-borrow it. then I don't get a `PointsTo` for the first one but maybe that's
+// ok.
+//
+// cursor needs to be a points-to so we can remove nodes. yet we need a lifetime so the borrow
+// stays live. could keep a `&'a mut List` if we're taking full ownership with `Option::take`
+// (pre-pooping), but then dropping the borrow doesn't work.
+// dropping the borrow can't work: what if we're mid-update with a broken predicate and we drop the
+// ptr. since we can't forbid leaking, maybe pre-pooping is the only way.
+// still, want to be able to release the borrow in O(1). this requires a magic wand: forces me to
+// restore to some decent state, from which I can O(1) re-allow the original pointer.
 
 #[derive(Debug)]
-struct ListCursor(Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>);
+struct ListCursor<'a> {
+    ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>,
+    list: &'a mut List,
+}
 
-impl ListCursor {
+impl ListCursor<'_> {
     fn val(&self) -> &usize {
-        self.0.unpack_lt_ref(|ptr| &ptr.deref().val)
+        self.ptr.unpack_lt_ref(|ptr| &ptr.deref().val)
     }
     #[expect(unused)]
     fn val_mut(&mut self) -> &mut usize {
-        self.0.unpack_lt_mut(|ptr| &mut ptr.into_deref_mut().val)
+        self.ptr.unpack_lt_mut(|ptr| &mut ptr.into_deref_mut().val)
+    }
+
+    // TODO: avoid the backward-retraversal of the list.
+    // TODO: implement `Drop`
+    /// Restore the borrowed list after the cursor modifications.
+    fn restore_list(mut self) {
+        let first = loop {
+            match self.prev() {
+                Ok(prev) => self = prev,
+                Err(first) => break first,
+            }
+        };
+        let ptr = first.ptr;
+        ptr.unpack_lt(|ptr| {
+            let ptr = NodeStateCentral::unpack(ptr);
+            let (ptr, _) = node_helpers::write_prev(ptr, None);
+            let ptr = NodeStateFwd::pack(ptr);
+            let ptr = pack_lt(ptr);
+            first.list.0 = Some(ptr);
+        })
     }
 
     fn insert_after(self, val: usize) -> Self {
         // self: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
         // Expand the lifetime
-        self.0.unpack_lt(|ptr| {
+        self.ptr.unpack_lt(|ptr| {
             // ptr: Ptr<PointsTo<'this, NodeStateCentral<'this>>, Node>
             // Expand the permissions to the fields of `Node`
             let ptr = NodeStateCentral::unpack(ptr);
@@ -293,19 +331,22 @@ impl ListCursor {
                 // Pack lifetime
                 let ptr = pack_lt(ptr);
                 // ptr: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
-                Self(ptr)
+                Self {
+                    ptr,
+                    list: self.list,
+                }
             })
         })
     }
 
     /// Advance the cursor. Returns `Err(self)` if the cursor could not be advanced.
     fn next(self) -> Result<Self, Self> {
-        if self.0.unpack_lt_ref(|ptr| ptr.next.is_none()) {
+        if self.ptr.unpack_lt_ref(|ptr| ptr.next.is_none()) {
             return Err(self);
         };
         // self: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
         // Expand the lifetime
-        self.0.unpack_lt(|ptr| {
+        self.ptr.unpack_lt(|ptr| {
             // ptr: Ptr<PointsTo<'this, NodeStateCentral<'this>>, Node>
             // Expand the permissions to the fields of `Node`
             let ptr = NodeStateCentral::unpack(ptr);
@@ -370,18 +411,20 @@ impl ListCursor {
                 // Pack lifetime
                 let ptr = pack_lt(ptr);
                 // ptr: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
-                Ok(Self(ptr))
+                Ok(Self {
+                    ptr,
+                    list: self.list,
+                })
             })
         })
     }
-
     /// Move the cursor backwards. Returns `Err(self)` if the cursor could not be moved.
     fn prev(self) -> Result<Self, Self> {
-        if self.0.unpack_lt_ref(|ptr| ptr.prev.is_none()) {
+        if self.ptr.unpack_lt_ref(|ptr| ptr.prev.is_none()) {
             return Err(self);
         };
         // Expand the lifetime
-        self.0.unpack_lt(|ptr| {
+        self.ptr.unpack_lt(|ptr| {
             // Expand the permissions to the fields of `Node`
             let ptr = NodeStateCentral::unpack(ptr);
             // Expand the lifetime
@@ -406,7 +449,10 @@ impl ListCursor {
                 let ptr = NodeStateCentral::pack(ptr);
                 // Pack lifetime
                 let ptr = pack_lt(ptr);
-                Ok(Self(ptr))
+                Ok(Self {
+                    ptr,
+                    list: self.list,
+                })
             })
         })
     }
@@ -418,7 +464,7 @@ pub fn main() {
     list.prepend(0);
     assert_eq!(list.iter().copied().collect::<Vec<_>>(), vec![0, 1]);
 
-    let cursor = list.into_cursor().unwrap();
+    let cursor = list.cursor().unwrap();
     let cursor = cursor.next().unwrap().insert_after(2).prev().unwrap();
     println!("{}", cursor.val());
     let cursor = cursor.next().unwrap();
@@ -429,6 +475,10 @@ pub fn main() {
     println!("{}", cursor.val());
     let cursor = cursor.prev().unwrap();
     println!("{}", cursor.val());
+    let cursor = cursor.next().unwrap();
+    cursor.restore_list();
     // TODO: drop
     // TODO: iter_mut
+
+    assert_eq!(list.iter().copied().collect::<Vec<_>>(), vec![0, 1, 2]);
 }
