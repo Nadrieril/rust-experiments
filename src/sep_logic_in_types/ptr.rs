@@ -7,6 +7,7 @@ pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
 
 /// A pointer to a `T` with permission `Perm` (either `PointsTo` or `Weak`).
 /// Note: dropping this value may leak the target. To deallocate, call `into_inner`.
+/// `Perm` will generally be either `PointsTo<...>` or `PackLt!(PointsTo<...>)`.
 pub struct Ptr<Perm, T> {
     ptr: NonNull<T>,
     pred: PhantomData<Perm>,

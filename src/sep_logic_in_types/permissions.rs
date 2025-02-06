@@ -6,29 +6,33 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-/// The separation logic points-to (unique ownership), with a predicate on the pointed-to value.
-/// The `'this` lifetime brand denotes the pointer address. This can be paired with some `Weak`
-/// pointers with the same brand to statically track that they have the same address.
-pub struct Own<'this, Pred = ()>(PhantomData<Pred>, InvariantLifetime<'this>);
-
-/// Read/write access, with a predicate on the pointed-to value. This allowd writing to the
-/// underlying values but not changing types; in particular this can't change the list
-/// structure.
-pub struct Mut<'this, 'a, Pred = ()>(
+/// A predicate applied to a pointer.
+/// `Perm` indicates what kind of accesses this pointer is allowed to do.
+/// `Pred` is a predicate on the pointed-to-value.
+/// `'this` is a lifetime brand that is used to identify pointers known to have the same address.
+pub struct PointsTo<'this, Perm, Pred = ()>(
+    PhantomData<Perm>,
     PhantomData<Pred>,
-    PhantomData<&'a mut ()>,
     InvariantLifetime<'this>,
 );
 
-/// Read access, with a predicate on the pointed-to value.
-pub struct Read<'this, 'a, Pred = ()>(
-    PhantomData<Pred>,
-    PhantomData<&'a ()>,
-    InvariantLifetime<'this>,
-);
+/// The separation logic points-to (unique ownership). This can read/write, modify permissions, and
+/// deallocate its target.
+pub struct POwn;
+pub type Own<'this, Pred = ()> = PointsTo<'this, POwn, Pred>;
 
-/// A pointer with no permissions, known to be equal to 'this.
-pub struct Weak<'this>(InvariantLifetime<'this>);
+/// Read/write access. This allows writing to the underlying values but not changing
+/// types/permissions.
+pub struct PMut<'a>(PhantomData<&'a mut ()>);
+pub type Mut<'this, 'a, Pred = ()> = PointsTo<'this, PMut<'a>, Pred>;
+
+/// Read access
+pub struct PRead<'a>(PhantomData<&'a ()>);
+pub type Read<'this, 'a, Pred = ()> = PointsTo<'this, PRead<'a>, Pred>;
+
+/// No access.
+pub struct PNone;
+pub type Weak<'this, Pred = ()> = PointsTo<'this, PNone, Pred>;
 
 impl<T> Ptr<PackLt!(Own<'_>), T> {
     #[expect(unused)]
