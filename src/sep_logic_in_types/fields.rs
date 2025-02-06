@@ -24,7 +24,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
     /// Writes the given pointer into the field.
     fn write_field<'this, PtrPerm, NewPerm>(
         mut ptr: Ptr<PtrPerm, Self>,
-        new: Ptr<NewPerm, Self::FieldTy>,
+        new: Option<Ptr<NewPerm, Self::FieldTy>>,
     ) -> (
         Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
         Option<Ptr<FieldPerm, Self::FieldTy>>,
@@ -33,7 +33,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         PtrPerm: HasPointsTo<'this>,
     {
         let old_field_val = ptr.field_ref().as_ref().map(|new| unsafe { new.copy() });
-        *ptr.field_mut() = Some(unsafe { new.cast_perm() });
+        *ptr.field_mut() = new.map(|new| unsafe { new.cast_perm() });
         let new_ptr = unsafe { ptr.cast_ty() };
         (new_ptr, old_field_val)
     }

@@ -103,6 +103,17 @@ pub fn pack_lt<'this, Perm: PackLt, T>(ptr: Ptr<Perm::Of<'this>, T>) -> Ptr<Perm
     unsafe { ptr.cast_perm() }
 }
 
+/// Give a name to the hidden lifetime in a pointer permissions.
+pub fn unpack_opt_lt<Perm, T, R>(
+    ptr: Option<Ptr<Perm, T>>,
+    f: impl for<'this> FnOnce(Option<Ptr<Perm::Of<'this>, T>>) -> R,
+) -> R
+where
+    Perm: PackLt,
+{
+    f(ptr.map(|ptr| unsafe { ptr.cast_perm() }))
+}
+
 impl<Perm, T> Debug for Ptr<Perm, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", std::any::type_name::<Self>())

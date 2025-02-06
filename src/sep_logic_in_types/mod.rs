@@ -53,14 +53,14 @@ mod node_helpers {
     /// Writes the given pointer into `ptr.next`.
     pub fn write_next<'this, Perm: HasPointsTo<'this>, Prev, OldNext, Next>(
         ptr: Ptr<Perm, Node<Prev, OldNext>>,
-        next: Ptr<Next, Node>,
+        next: Option<Ptr<Next, Node>>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldNext, Node>>) {
         Node::write_field(ptr, next)
     }
     /// Writes the given pointer into `ptr.prev`.
     pub fn write_prev<'this, Perm: HasPointsTo<'this>, OldPrev, Prev, Next>(
         ptr: Ptr<Perm, Node<OldPrev, Next>>,
-        prev: Ptr<Prev, Node>,
+        prev: Option<Ptr<Prev, Node>>,
     ) -> (Ptr<Perm, Node<Prev, Next>>, Option<Ptr<OldPrev, Node>>) {
         <Node<_, _> as HasPermField<0, _>>::write_field(ptr, prev)
     }
@@ -153,7 +153,7 @@ mod list_helpers {
     pub fn prepend_inner<'this, 'prev>(
         next_or_prev: Result<
             Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-            Ptr<Weak<'prev>, Node>,
+            Option<Ptr<Weak<'prev>, Node>>,
         >,
         val: usize,
     ) -> Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
@@ -167,11 +167,11 @@ mod list_helpers {
             let (prev, next) = match next_or_prev {
                 Ok(next) => {
                     let next = NodeStateFwd::unpack(next);
-                    let (next, prev) = node_helpers::write_prev(next, new.weak_ref());
+                    let (next, prev) = node_helpers::write_prev(next, Some(new.weak_ref()));
                     let next = NodeStateFwd::pack(next);
                     (prev, Some(pack_lt(next)))
                 }
-                Err(prev) => (Some(prev), None),
+                Err(prev) => (prev, None),
             };
             // Allocate a new node whose `next` field is `next`.
             let new = NodeStateFwd::pack(new.write(Node { val, prev, next }));
@@ -182,24 +182,38 @@ mod list_helpers {
 }
 
 #[derive(Debug)]
+struct List(Option<Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'static>>), Node>>);
+
+impl List {
+    pub fn new() -> Self {
+        List(None)
+    }
+
+    /// Add a new element at the start of the list.
+    pub fn prepend(&mut self, val: usize) {
+        let ptr = self.0.take();
+        let new = unpack_opt_lt(ptr, |ptr| {
+            let next_or_prev = ptr.ok_or(None);
+            list_helpers::prepend_inner(next_or_prev, val)
+        });
+        self.0 = Some(new);
+    }
+
+    pub fn into_cursor(mut self) -> Option<ListCursor> {
+        self.0.take()?.unpack_lt(|ptr| {
+            let ptr = NodeStateFwd::unpack(ptr);
+            let (ptr, _) = node_helpers::write_prev(ptr, None);
+            let ptr = NodeStateCentral::pack(ptr);
+            let ptr = pack_lt(ptr);
+            Some(ListCursor(ptr))
+        })
+    }
+}
+
+#[derive(Debug)]
 struct ListCursor(Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>);
 
 impl ListCursor {
-    pub fn new(val: usize) -> Self {
-        Ptr::new_uninit_cyclic::<
-            PackLt!(<NodeStateCentral<'_> as PackedPredicate<'_, Node>>::Unpacked),
-            _,
-        >(|ptr| {
-            let ptr = ptr.write(Node {
-                val,
-                prev: None,
-                next: None,
-            });
-            let ptr = NodeStateCentral::pack(ptr);
-            Self(pack_lt(ptr))
-        })
-    }
-
     fn val(&self) -> &usize {
         self.0.with_lt_ref(|ptr| &ptr.deref().val)
     }
@@ -226,10 +240,10 @@ impl ListCursor {
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
                 let (ptr, next) = extract_field_permission::<1, _, _, _>(ptr);
-                let next_or_prev = next.ok_or(ptr.weak_ref());
+                let next_or_prev = next.ok_or(Some(ptr.weak_ref()));
                 let new = list_helpers::prepend_inner(next_or_prev, val);
                 // Update `ptr.next`.
-                let (ptr, _) = node_helpers::write_next(ptr, new);
+                let (ptr, _) = node_helpers::write_next(ptr, Some(new));
                 // Unexpand permissions
                 let ptr = NodeStateCentral::pack(ptr);
                 // ptr: Ptr<PointsTo<'next, NodeStateCentral<'next>>, Node>
@@ -356,13 +370,11 @@ impl ListCursor {
 }
 
 pub fn main() {
-    let cursor = ListCursor::new(0)
-        .insert_after(1)
-        .next()
-        .unwrap()
-        .insert_after(2)
-        .prev()
-        .unwrap();
+    let mut list = List::new();
+    list.prepend(1);
+    list.prepend(0);
+    let cursor = list.into_cursor().unwrap();
+    let cursor = cursor.next().unwrap().insert_after(2).prev().unwrap();
     println!("{}", cursor.val());
     let cursor = cursor.next().unwrap();
     println!("{}", cursor.val());
