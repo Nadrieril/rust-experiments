@@ -215,11 +215,11 @@ struct ListCursor(Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>);
 
 impl ListCursor {
     fn val(&self) -> &usize {
-        self.0.with_lt_ref(|ptr| &ptr.deref().val)
+        self.0.unpack_lt_ref(|ptr| &ptr.deref().val)
     }
     #[expect(unused)]
     fn val_mut(&mut self) -> &mut usize {
-        self.0.with_lt_mut(|ptr| &mut ptr.into_deref_mut().val)
+        self.0.unpack_lt_mut(|ptr| &mut ptr.into_deref_mut().val)
     }
 
     fn insert_after(self, val: usize) -> Self {
@@ -257,7 +257,7 @@ impl ListCursor {
 
     /// Advance the cursor. Returns `Err(self)` if the cursor could not be advanced.
     fn next(self) -> Result<Self, Self> {
-        if self.0.with_lt_ref(|ptr| ptr.next.is_none()) {
+        if self.0.unpack_lt_ref(|ptr| ptr.next.is_none()) {
             return Err(self);
         };
         // self: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
@@ -334,7 +334,7 @@ impl ListCursor {
 
     /// Move the cursor backwards. Returns `Err(self)` if the cursor could not be moved.
     fn prev(self) -> Result<Self, Self> {
-        if self.0.with_lt_ref(|ptr| ptr.prev.is_none()) {
+        if self.0.unpack_lt_ref(|ptr| ptr.prev.is_none()) {
             return Err(self);
         };
         // Expand the lifetime

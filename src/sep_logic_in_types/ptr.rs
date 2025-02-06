@@ -75,7 +75,7 @@ impl<Perm, T> Ptr<Perm, T> {
         f(unsafe { self.cast_perm() })
     }
     /// Give a name to the hidden lifetime in a pointer permissions.
-    pub fn with_lt_ref<'a, R>(
+    pub fn unpack_lt_ref<'a, R>(
         &'a self,
         f: impl for<'this> FnOnce(Ptr<Read<'this, 'a>, T>) -> R,
     ) -> R
@@ -86,7 +86,7 @@ impl<Perm, T> Ptr<Perm, T> {
         f(unsafe { self.unsafe_copy().cast_perm() })
     }
     /// Give a name to the hidden lifetime in a pointer permissions.
-    pub fn with_lt_mut<'a, R>(
+    pub fn unpack_lt_mut<'a, R>(
         &'a mut self,
         f: impl for<'this> FnOnce(Ptr<Mut<'this, 'a>, T>) -> R,
     ) -> R
