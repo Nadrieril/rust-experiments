@@ -10,7 +10,7 @@ use ptr::*;
 /// `Prev` and `Next` are permissions
 // The permissions are in generics to be able to move permissions around easily. The `HasPermField`
 // trait helps manage these permissions.
-pub struct Node<Prev = (), Next = ()> {
+struct Node<Prev = (), Next = ()> {
     val: usize,
     prev: Option<Ptr<Prev, Node>>,
     next: Option<Ptr<Next, Node>>,
@@ -119,21 +119,21 @@ mod node_helpers {
 }
 
 /// A linked list with backward pointers, with ownership that follows the forward pointers.
-pub struct NodeStateFwd<'this, 'prev>(InvariantLifetime<'this>, InvariantLifetime<'prev>);
+struct NodeStateFwd<'this, 'prev>(InvariantLifetime<'this>, InvariantLifetime<'prev>);
 impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
     type Unpacked = Node<Weak<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
 }
 
 /// Like `NodeStateFwd` except flipping the fields of `Node` (the "forward" pointer is in the
 /// `Node.prev` field instead).
-pub struct NodeStateBwd<'this, 'next>(InvariantLifetime<'this>, InvariantLifetime<'next>);
+struct NodeStateBwd<'this, 'next>(InvariantLifetime<'this>, InvariantLifetime<'next>);
 impl<'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'this, 'next> {
     type Unpacked = Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), Weak<'next>>;
 }
 
 /// A Node whose `prev` and `next` fields are each a forward-owned linked list with back-edges.
 /// This functions as a doubly-linked-list zipper.
-pub struct NodeStateCentral<'this>(InvariantLifetime<'this>);
+struct NodeStateCentral<'this>(InvariantLifetime<'this>);
 impl<'this> PackedPredicate<'this, Node> for NodeStateCentral<'this> {
     type Unpacked =
         Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
@@ -182,7 +182,7 @@ mod list_helpers {
 }
 
 #[derive(Debug)]
-struct List(Option<Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'static>>), Node>>);
+pub struct List(Option<Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'static>>), Node>>);
 
 impl List {
     pub fn new() -> Self {
@@ -224,7 +224,7 @@ impl List {
 }
 
 // We existentially quantify two pointer tags: the current one and the previous one.
-struct ListIter<'a>(
+pub struct ListIter<'a>(
     Option<
         Ptr<
             PackLt!(<'prev> = PackLt!(<'this> = Read<'this, 'a, NodeStateFwd<'this, 'prev>>)),
@@ -257,8 +257,9 @@ impl<'a> Iterator for ListIter<'a> {
         })
     }
 }
+
 #[derive(Debug)]
-struct ListCursor<'a> {
+pub struct ListCursor<'a> {
     ptr: Option<Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>>,
     /// Borrow of the original list. While the cursor exists, the list thinks it's empty. Call
     /// `restore_list` to restore the list to the expected state.
@@ -267,11 +268,10 @@ struct ListCursor<'a> {
 }
 
 impl ListCursor<'_> {
-    fn val(&self) -> Option<&usize> {
+    pub fn val(&self) -> Option<&usize> {
         Some(self.ptr.as_ref()?.unpack_lt_ref(|ptr| &ptr.deref().val))
     }
-    #[expect(unused)]
-    fn val_mut(&mut self) -> Option<&mut usize> {
+    pub fn val_mut(&mut self) -> Option<&mut usize> {
         Some(
             self.ptr
                 .as_mut()?
@@ -283,7 +283,7 @@ impl ListCursor<'_> {
     // TODO: avoid the backward-retraversal of the list.
     // I want to keep the first ptr around for when we're done with the cursor. Can only recover
     // usage of the first pointer if the current state is compatible: need a magic wand.
-    fn restore_list(mut self) {
+    pub fn restore_list(mut self) {
         let mut first = loop {
             match self.prev() {
                 Ok(prev) => self = prev,
@@ -305,7 +305,7 @@ impl ListCursor<'_> {
         });
     }
 
-    fn insert_after(mut self, val: usize) -> Self {
+    pub fn insert_after(mut self, val: usize) -> Self {
         let Some(ptr) = self.ptr.take() else {
             // The original list was empty.
             let list = self.list.take().unwrap();
@@ -348,7 +348,7 @@ impl ListCursor<'_> {
     }
 
     /// Advance the cursor. Returns `Err(self)` if the cursor could not be advanced.
-    fn next(mut self) -> Result<Self, Self> {
+    pub fn next(mut self) -> Result<Self, Self> {
         let Some(ptr) = self.ptr.take() else {
             return Err(self);
         };
@@ -431,7 +431,7 @@ impl ListCursor<'_> {
         })
     }
     /// Move the cursor backwards. Returns `Err(self)` if the cursor could not be moved.
-    fn prev(mut self) -> Result<Self, Self> {
+    pub fn prev(mut self) -> Result<Self, Self> {
         let Some(ptr) = self.ptr.take() else {
             return Err(self);
         };
@@ -489,7 +489,8 @@ impl Drop for ListCursor<'_> {
     }
 }
 
-pub fn main() {
+#[test]
+fn test() {
     let mut list = List::new();
     list.prepend(1);
     list.prepend(0);
@@ -497,15 +498,15 @@ pub fn main() {
 
     let cursor = list.cursor();
     let cursor = cursor.next().unwrap().insert_after(2).prev().unwrap();
-    println!("{}", cursor.val().unwrap());
+    assert_eq!(cursor.val().unwrap(), &0);
     let cursor = cursor.next().unwrap();
-    println!("{}", cursor.val().unwrap());
+    assert_eq!(cursor.val().unwrap(), &1);
     let cursor = cursor.next().unwrap();
-    println!("{}", cursor.val().unwrap());
+    assert_eq!(cursor.val().unwrap(), &2);
     let cursor = cursor.prev().unwrap();
-    println!("{}", cursor.val().unwrap());
+    assert_eq!(cursor.val().unwrap(), &1);
     let cursor = cursor.prev().unwrap();
-    println!("{}", cursor.val().unwrap());
+    assert_eq!(cursor.val().unwrap(), &0);
     let cursor = cursor.next().unwrap();
     drop(cursor);
 
