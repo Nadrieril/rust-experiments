@@ -1,4 +1,4 @@
-#![feature(closure_lifetime_binder)]
+#![feature(arbitrary_self_types)]
 #![feature(box_vec_non_null)]
 
 pub mod alias_owned;

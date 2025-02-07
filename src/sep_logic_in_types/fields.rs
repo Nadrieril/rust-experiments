@@ -23,7 +23,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
 
     /// Read the cintents of the field, taking the permissions with it as much as possible.
     fn read_field<'this, 'field, 'a, PtrPerm>(
-        ptr: Ptr<PtrPerm, Self>,
+        self: Ptr<PtrPerm, Self>,
     ) -> (
         Ptr<PtrPerm, Self::ChangePerm<Weak<'field>>>,
         Option<Ptr<FieldPerm::AccessThrough, Self::FieldTy>>,
@@ -34,17 +34,18 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         FieldPerm: AccessThrough<PtrPerm>,
         FieldPerm::AccessThrough: HasWeak<'field>,
     {
+        let ptr = self;
         let field = ptr
             .deref()
             .field_ref()
             .as_ref()
             .map(|ptr| unsafe { ptr.unsafe_copy().cast_access() });
-        let ptr = Self::downgrade_field_permission(ptr);
+        let ptr = ptr.downgrade_field_permission();
         (ptr, field)
     }
     /// Writes the given pointer into the field.
     fn write_field<'this, PtrPerm, NewPerm>(
-        mut ptr: Ptr<PtrPerm, Self>,
+        self: Ptr<PtrPerm, Self>,
         new: Option<Ptr<NewPerm, Self::FieldTy>>,
     ) -> (
         Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
@@ -53,6 +54,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
     where
         PtrPerm: HasOwn<'this>,
     {
+        let mut ptr = self;
         let old_field_val = ptr
             .deref()
             .field_ref()
@@ -64,7 +66,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
     }
     /// Like `write_field` but only moves permissions around. Does not write to memory.
     fn write_field_permission<'this, 'field, PtrPerm, NewPerm>(
-        ptr: Ptr<PtrPerm, Self>,
+        self: Ptr<PtrPerm, Self>,
         _new: Ptr<NewPerm, Self::FieldTy>,
     ) -> (
         Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
@@ -75,6 +77,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         FieldPerm: HasWeak<'field>,
         NewPerm: HasWeak<'field>,
     {
+        let ptr = self;
         let old_field_val = ptr
             .deref()
             .field_ref()
@@ -88,19 +91,19 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
     }
     /// Downgrade the permission in the field.
     fn downgrade_field_permission<'this, 'next, PtrPerm>(
-        ptr: Ptr<PtrPerm, Self>,
+        self: Ptr<PtrPerm, Self>,
     ) -> Ptr<PtrPerm, Self::ChangePerm<Weak<'next>>>
     where
         FieldPerm: HasWeak<'next>,
     {
         // Safety: we're downgrading a `HasWeak<'a>` to a `Weak<'a>`, which is fine even without
         // any particular permissions on `ptr`.
-        unsafe { ptr.cast_ty() }
+        unsafe { self.cast_ty() }
     }
 
     /// Give a name to the hidden lifetime in the permission of the field.
     fn unpack_field_lt<'this, PtrPerm, R>(
-        ptr: Ptr<PtrPerm, Self>,
+        self: Ptr<PtrPerm, Self>,
         f: impl for<'field> FnOnce(Ptr<PtrPerm, Self::ChangePerm<FieldPerm::Of<'field>>>) -> R,
     ) -> R
     where
@@ -109,7 +112,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         // Safety: the higher-ranked type + invariant lifetimes hopefully ensures the identifier is
         // fresh and cannot be mixed with other similar identifiers. The behavior of associated
         // types in this context is not entirely clear to me though.
-        f(unsafe { ptr.cast_ty() })
+        f(unsafe { self.cast_ty() })
     }
     /// Hide the name of the lifetime in the permission of the field.
     fn pack_field_lt<'this, 'field, PtrPerm>(

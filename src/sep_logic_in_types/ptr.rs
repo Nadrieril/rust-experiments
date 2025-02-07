@@ -1,6 +1,6 @@
 use super::*;
 use higher_kinded_types::ForLt as PackLt;
-use std::{fmt::Debug, marker::PhantomData, ptr::NonNull};
+use std::{fmt::Debug, marker::PhantomData, ops::Receiver, ptr::NonNull};
 
 // Copied from `ghost_cell`.
 pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
@@ -148,6 +148,10 @@ where
     Perm: PackLt,
 {
     f(ptr.map(|ptr| unsafe { ptr.cast_perm() }))
+}
+
+impl<Perm, T> Receiver for Ptr<Perm, T> {
+    type Target = T;
 }
 
 impl<Perm, T> Debug for Ptr<Perm, T> {
