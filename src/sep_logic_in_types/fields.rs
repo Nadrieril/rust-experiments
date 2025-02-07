@@ -35,6 +35,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         FieldPerm::AccessThrough: HasWeak<'field>,
     {
         let field = ptr
+            .deref()
             .field_ref()
             .as_ref()
             .map(|ptr| unsafe { ptr.unsafe_copy().cast_access() });
@@ -53,10 +54,11 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         PtrPerm: HasOwn<'this>,
     {
         let old_field_val = ptr
+            .deref()
             .field_ref()
             .as_ref()
             .map(|new| unsafe { new.unsafe_copy() });
-        *ptr.field_mut() = new.map(|new| unsafe { new.cast_perm() });
+        *ptr.deref_mut().field_mut() = new.map(|new| unsafe { new.cast_perm() });
         let new_ptr = unsafe { ptr.cast_ty() };
         (new_ptr, old_field_val)
     }
@@ -74,6 +76,7 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
         NewPerm: HasWeak<'field>,
     {
         let old_field_val = ptr
+            .deref()
             .field_ref()
             .as_ref()
             .map(|new| unsafe { new.unsafe_copy() });
@@ -133,6 +136,7 @@ where
     FieldPerm: HasWeak<'field>,
 {
     match ptr
+        .deref()
         .field_ref()
         .as_ref()
         .map(|next| next.weak_ref_no_erase().erase_pred())

@@ -1,10 +1,6 @@
 use super::ptr::*;
 use higher_kinded_types::ForLt as PackLt;
-use std::{
-    marker::PhantomData,
-    mem::MaybeUninit,
-    ops::{Deref, DerefMut},
-};
+use std::{marker::PhantomData, mem::MaybeUninit};
 
 /// A predicate applied to a pointer.
 /// `Perm` indicates what kind of accesses this pointer is allowed to do.
@@ -163,23 +159,23 @@ impl<'this, 'a, Perm, T> Ptr<Mut<'this, 'a, Perm>, T> {
         unsafe { self.as_non_null().as_mut() }
     }
 }
-impl<'this, Perm: HasMut<'this>, T> DerefMut for Ptr<Perm, T> {
-    fn deref_mut(&mut self) -> &mut T {
+impl<'this, Perm: HasMut<'this>, T> Ptr<Perm, T> {
+    pub fn deref_mut(&mut self) -> &mut T {
         // Safety: we have at least `Mut` permission.
         unsafe { self.as_non_null().as_mut() }
     }
 }
 
 impl<'this, 'a, Perm, T> Ptr<Read<'this, 'a, Perm>, T> {
-    pub fn deref(&self) -> &'a T {
+    /// Like `deref` but get a more precise lifetime.
+    pub fn deref_exact(&self) -> &'a T {
         // Safety: we have `Read` permission for `'a`.
         unsafe { self.as_non_null().as_ref() }
     }
 }
-impl<'this, Perm: HasRead<'this>, T> Deref for Ptr<Perm, T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        // Safety: we have at least `Read` permission.
+impl<'this, Perm: HasRead<'this>, T> Ptr<Perm, T> {
+    pub fn deref(&self) -> &T {
+        // Safety: we have `Read` permission.
         unsafe { self.as_non_null().as_ref() }
     }
 }

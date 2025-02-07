@@ -257,7 +257,7 @@ impl<'a> Iterator for ListIter<'a> {
         }
         self.0.take()?.unpack_lt(|ptr| {
             ptr.unpack_lt(|ptr| {
-                let val = &ptr.deref().val;
+                let val = &ptr.deref_exact().val;
                 self.0 = advance(ptr).map(pack_lt);
                 Some(val)
             })
@@ -312,7 +312,11 @@ pub struct ListCursor<'a> {
 
 impl ListCursor<'_> {
     pub fn val(&self) -> Option<&usize> {
-        Some(self.ptr.as_ref()?.unpack_lt_ref(|ptr| &ptr.deref().val))
+        Some(
+            self.ptr
+                .as_ref()?
+                .unpack_lt_ref(|ptr| &ptr.deref_exact().val),
+        )
     }
     pub fn val_mut(&mut self) -> Option<&mut usize> {
         Some(
@@ -395,7 +399,7 @@ impl ListCursor<'_> {
         let Some(ptr) = self.ptr.take() else {
             return Err(self);
         };
-        if ptr.unpack_lt_ref(|ptr| ptr.next.is_none()) {
+        if ptr.unpack_lt_ref(|ptr| ptr.deref().next.is_none()) {
             self.ptr = Some(ptr);
             return Err(self);
         };
@@ -478,7 +482,7 @@ impl ListCursor<'_> {
         let Some(ptr) = self.ptr.take() else {
             return Err(self);
         };
-        if ptr.unpack_lt_ref(|ptr| ptr.prev.is_none()) {
+        if ptr.unpack_lt_ref(|ptr| ptr.deref().prev.is_none()) {
             self.ptr = Some(ptr);
             return Err(self);
         };
