@@ -160,9 +160,10 @@ where
     }
 }
 
-/// A predicate on a pointed-to value. It is defined by the fact that `Ptr<PointsTo<'this, Self>,
-/// Ty>` and `Ptr<PointsTo<'this>, Self::Unpacked>` are interchangeable. This makes it possible to
-/// represent inductive predicates, that are rolled/unrolled using the `pack`/`unpack` methods.
+/// A predicate on a pointed-to value. It is defined by the fact that `Ptr<PointsTo<'this, Access,
+/// Self>, Ty>` and `Ptr<PointsTo<'this, Access>, Self::Unpacked>` are interchangeable. This makes
+/// it possible to represent inductive predicates, that are rolled/unrolled using the
+/// `pack`/`unpack` methods.
 pub trait PackedPredicate<'this, Ty>: Sized {
     type Unpacked: EraseNestedPerms<Erased = Ty>;
     /// Given a pointer with `Self` permission, turn it into a pointer to the type with permissions

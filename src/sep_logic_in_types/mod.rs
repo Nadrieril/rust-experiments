@@ -289,19 +289,19 @@ impl ListCursor<'_> {
             list.prepend(val);
             return list.cursor();
         };
-        // self: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
+        // self: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
         // Expand the lifetime
         ptr.unpack_lt(|ptr| {
-            // ptr: Ptr<PointsTo<'this, NodeStateCentral<'this>>, Node>
+            // ptr: Ptr<Own<'this, NodeStateCentral<'this>>, Node>
             // Expand the permissions to the fields of `Node`
             let ptr = NodeStateCentral::unpack(ptr);
             // Expand the lifetime
             ptr.unpack_field_lt(FNext, |ptr| {
                 // ptr: Ptr<
-                //     PointsTo<'this>,
+                //     Own<'this>,
                 //     Node<
-                //         PackLt!(PointsTo<'_, NodeStateBwd<'_, 'this>>),
-                //         PointsTo<'next, NodeStateFwd<'next, 'this>>,
+                //         PackLt!(Own<'_, NodeStateBwd<'_, 'this>>),
+                //         Own<'next, NodeStateFwd<'next, 'this>>,
                 //     >,
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
@@ -312,10 +312,10 @@ impl ListCursor<'_> {
                 let (ptr, _) = ptr.write_field(FNext, Some(new));
                 // Unexpand permissions
                 let ptr = NodeStateCentral::pack(ptr);
-                // ptr: Ptr<PointsTo<'next, NodeStateCentral<'next>>, Node>
+                // ptr: Ptr<Own<'next, NodeStateCentral<'next>>, Node>
                 // Pack lifetime
                 let ptr = pack_lt(ptr);
-                // ptr: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
+                // ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
                 Self {
                     ptr: Some(ptr),
                     list: self.list.take(),
@@ -333,26 +333,26 @@ impl ListCursor<'_> {
             self.ptr = Some(ptr);
             return Err(self);
         };
-        // self: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
+        // self: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
         // Expand the lifetime
         ptr.unpack_lt(|ptr| {
-            // ptr: Ptr<PointsTo<'this, NodeStateCentral<'this>>, Node>
+            // ptr: Ptr<Own<'this, NodeStateCentral<'this>>, Node>
             // Expand the permissions to the fields of `Node`
             let ptr = NodeStateCentral::unpack(ptr);
             // ptr: Ptr<
-            //     PointsTo<'this>,
+            //     Own<'this>,
             //     Node<
-            //         PackLt!(PointsTo<'_, NodeStateBwd<'_, 'this>>),
-            //         PackLt!(PointsTo<'_, NodeStateFwd<'_, 'this>>),
+            //         PackLt!(Own<'_, NodeStateBwd<'_, 'this>>),
+            //         PackLt!(Own<'_, NodeStateFwd<'_, 'this>>),
             //     >,
             // >
             // Expand the lifetime
             ptr.unpack_field_lt(FNext, |ptr| {
                 // ptr: Ptr<
-                //     PointsTo<'this>,
+                //     Own<'this>,
                 //     Node<
-                //         PackLt!(PointsTo<'_, NodeStateBwd<'_, 'this>>),
-                //         PointsTo<'next, NodeStateFwd<'next, 'this>>,
+                //         PackLt!(Own<'_, NodeStateBwd<'_, 'this>>),
+                //         Own<'next, NodeStateFwd<'next, 'this>>,
                 //     >,
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
@@ -360,46 +360,46 @@ impl ListCursor<'_> {
                 // `unwrap` is ok because we checked earlier.
                 let next = next.unwrap();
                 // ptr: Ptr<
-                //     PointsTo<'this>,
+                //     Own<'this>,
                 //     Node<
-                //         PackLt!(PointsTo<'_, NodeStateBwd<'_, 'this>>),
+                //         PackLt!(Own<'_, NodeStateBwd<'_, 'this>>),
                 //         Weak<'next>,
                 //     >,
                 // >
-                // next: Ptr<PointsTo<'next, NodeStateFwd<'next, 'this>>, Node>
+                // next: Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>
                 // Unexpand the permissions
                 let ptr = NodeStateBwd::pack(ptr);
-                // ptr: Ptr<PointsTo<'this, NodeStateBwd<'this, 'next>>, Node>
+                // ptr: Ptr<Own<'this, NodeStateBwd<'this, 'next>>, Node>
                 // Expand the permissions
                 let next = NodeStateFwd::unpack(next);
-                // next: Ptr<PointsTo<'next>,
+                // next: Ptr<Own<'next>,
                 //    Node<
                 //      Weak<'this>,
-                //      PackLt!(PointsTo<'_, NodeStateFwd<'_, 'next>>),
+                //      PackLt!(Own<'_, NodeStateFwd<'_, 'next>>),
                 //    >,
                 // >
                 // Insert ownership
                 let (ptr, _) = next.write_field_permission(FPrev, ptr);
-                // ptr: Ptr<PointsTo<'next>,
+                // ptr: Ptr<Own<'next>,
                 //    Node<
-                //      PointsTo<'this, NodeStateBwd<'this, 'next>>,
-                //      PackLt!(PointsTo<'_, NodeStateFwd<'_, 'next>>),
+                //      Own<'this, NodeStateBwd<'this, 'next>>,
+                //      PackLt!(Own<'_, NodeStateFwd<'_, 'next>>),
                 //    >>
                 // >
                 // Pack lifetime
                 let ptr = Node::pack_field_lt(ptr, FPrev);
-                // ptr: Ptr<PointsTo<'next>,
+                // ptr: Ptr<Own<'next>,
                 //    Node<
-                //      PackLt!(PointsTo<'_, NodeStateBwd<'_, 'next>>),
-                //      PackLt!(PointsTo<'_, NodeStateFwd<'_, 'next>>),
+                //      PackLt!(Own<'_, NodeStateBwd<'_, 'next>>),
+                //      PackLt!(Own<'_, NodeStateFwd<'_, 'next>>),
                 //    >>
                 // >
                 // Unexpand permissions
                 let ptr = NodeStateCentral::pack(ptr);
-                // ptr: Ptr<PointsTo<'next, NodeStateCentral<'next>>, Node>
+                // ptr: Ptr<Own<'next, NodeStateCentral<'next>>, Node>
                 // Pack lifetime
                 let ptr = pack_lt(ptr);
-                // ptr: Ptr<PackLt!(PointsTo<'_, NodeStateCentral<'_>>), Node>
+                // ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
                 Ok(Self {
                     ptr: Some(ptr),
                     list: self.list.take(),

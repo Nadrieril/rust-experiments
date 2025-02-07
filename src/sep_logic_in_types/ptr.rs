@@ -5,7 +5,7 @@ use std::{fmt::Debug, marker::PhantomData, ops::Receiver, ptr::NonNull};
 // Copied from `ghost_cell`.
 pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
 
-/// A pointer to a `T` with permission `Perm` (either `PointsTo` or `Weak`).
+/// A pointer to a `T` with permission `Perm` (one of `Own`, `Mut`, etc).
 /// Note: dropping this value may leak the target. To deallocate, call `into_inner`.
 /// `Perm` will generally be either `PointsTo<...>` or `PackLt!(PointsTo<...>)`.
 pub struct Ptr<Perm, T> {
