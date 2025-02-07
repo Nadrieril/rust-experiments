@@ -6,39 +6,36 @@ use std::{
 };
 
 use ghost_cell::{GhostCell, GhostToken};
+use higher_kinded_types::ForLt;
 
-pub trait GhostCellContainer {
-    type Open<'brand>;
-}
-pub struct ClosedGhostCellContainer<C: GhostCellContainer> {
+pub struct ClosedGhostCellContainer<C: ForLt> {
     // This lifetime is a lie.
-    container: C::Open<'static>,
+    container: C::Of<'static>,
 }
-impl<C: GhostCellContainer> ClosedGhostCellContainer<C> {
+impl<C: ForLt> ClosedGhostCellContainer<C> {
     // The output lifetime needs to be mentioned in the output, hence the `PhantomData`.
-    pub fn new(f: impl for<'brand> FnOnce(PhantomData<&'brand ()>) -> C::Open<'brand>) -> Self {
+    pub fn new(f: impl for<'brand> FnOnce(PhantomData<&'brand ()>) -> C::Of<'brand>) -> Self {
         Self {
             container: f(PhantomData),
         }
     }
     pub fn open_ref<R>(
         &self,
-        f: impl for<'brand> FnOnce(&C::Open<'brand>, &GhostToken<'brand>) -> R,
+        f: impl for<'brand> FnOnce(&C::Of<'brand>, &GhostToken<'brand>) -> R,
     ) -> R {
         GhostToken::new(|token| {
             // Safety: uhhh
-            let container_ref: &C::Open<'_> = unsafe { std::mem::transmute(&self.container) };
+            let container_ref: &C::Of<'_> = unsafe { std::mem::transmute(&self.container) };
             f(container_ref, &token)
         })
     }
     pub fn open_mut<R>(
         &mut self,
-        f: impl for<'brand> FnOnce(&mut C::Open<'brand>, &mut GhostToken<'brand>) -> R,
+        f: impl for<'brand> FnOnce(&mut C::Of<'brand>, &mut GhostToken<'brand>) -> R,
     ) -> R {
         GhostToken::new(|mut token| {
             // Safety: uhhh
-            let container_ref: &mut C::Open<'_> =
-                unsafe { std::mem::transmute(&mut self.container) };
+            let container_ref: &mut C::Of<'_> = unsafe { std::mem::transmute(&mut self.container) };
             f(container_ref, &mut token)
         })
     }
@@ -98,11 +95,7 @@ impl<'brand> MyGraphOpen<'brand> {
     }
 }
 
-struct MyGraphContainerImpl;
-impl GhostCellContainer for MyGraphContainerImpl {
-    type Open<'brand> = MyGraphOpen<'brand>;
-}
-pub struct MyGraph(ClosedGhostCellContainer<MyGraphContainerImpl>);
+pub struct MyGraph(ClosedGhostCellContainer<ForLt!(MyGraphOpen<'_>)>);
 
 impl MyGraph {
     pub fn new() -> Self {
