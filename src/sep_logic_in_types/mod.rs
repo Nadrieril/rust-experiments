@@ -16,120 +16,35 @@ struct Node<Prev = (), Next = ()> {
     next: Option<Ptr<Next, Node>>,
 }
 
+/// Type-level tokens that represent each field of `Node`.
+#[derive(Clone, Copy)]
+struct FPrev;
+#[derive(Clone, Copy)]
+struct FNext;
+
 // All of the unsafe for `Node` is in these three declarations.
 unsafe impl<Prev, Next> EraseNestedPerms for Node<Prev, Next> {
     type Erased = Node;
 }
 
-unsafe impl<Prev, Next> HasPermField<0, Prev> for Node<Prev, Next> {
+unsafe impl<Prev, Next> HasPermField<FPrev, Prev> for Node<Prev, Next> {
     type FieldTy = Node;
     type ChangePerm<NewPrev> = Node<NewPrev, Next>;
-    fn field_ref(&self) -> &Option<Ptr<Prev, Self::FieldTy>> {
+    fn field_ref(&self, _: FPrev) -> &Option<Ptr<Prev, Self::FieldTy>> {
         &self.prev
     }
-    fn field_mut(&mut self) -> &mut Option<Ptr<Prev, Self::FieldTy>> {
+    fn field_mut(&mut self, _: FPrev) -> &mut Option<Ptr<Prev, Self::FieldTy>> {
         &mut self.prev
     }
 }
-unsafe impl<Prev, Next> HasPermField<1, Next> for Node<Prev, Next> {
+unsafe impl<Prev, Next> HasPermField<FNext, Next> for Node<Prev, Next> {
     type FieldTy = Node;
     type ChangePerm<NewNext> = Node<Prev, NewNext>;
-    fn field_ref(&self) -> &Option<Ptr<Next, Self::FieldTy>> {
+    fn field_ref(&self, _: FNext) -> &Option<Ptr<Next, Self::FieldTy>> {
         &self.next
     }
-    fn field_mut(&mut self) -> &mut Option<Ptr<Next, Self::FieldTy>> {
+    fn field_mut(&mut self, _: FNext) -> &mut Option<Ptr<Next, Self::FieldTy>> {
         &mut self.next
-    }
-}
-
-/// Helpers that wrap `HasPermField` methods.
-mod node_helpers {
-    use super::fields::*;
-    use super::permissions::*;
-    use super::ptr::*;
-    use super::Node;
-    use higher_kinded_types::ForLt as PackLt;
-
-    impl<Prev, Next> Node<Prev, Next> {
-        /// Writes the given pointer into `ptr.next`.
-        pub fn write_next<'this, Perm: HasOwn<'this>, NewNext>(
-            self: Ptr<Perm, Self>,
-            next: Option<Ptr<NewNext, Node>>,
-        ) -> (Ptr<Perm, Node<Prev, NewNext>>, Option<Ptr<Next, Node>>) {
-            Node::write_field(self, next)
-        }
-        /// Writes the given pointer into `ptr.prev`.
-        pub fn write_prev<'this, Perm: HasOwn<'this>, NewPrev>(
-            self: Ptr<Perm, Self>,
-            prev: Option<Ptr<NewPrev, Node>>,
-        ) -> (Ptr<Perm, Node<NewPrev, Next>>, Option<Ptr<Prev, Node>>) {
-            <Node<_, _> as HasPermField<0, _>>::write_field(self, prev)
-        }
-
-        /// Like `write_next` but only moves permissions around. Does not write to memory.
-        pub fn write_next_permission<'this, 'next, Perm, NewNext>(
-            self: Ptr<Perm, Self>,
-            next: Ptr<NewNext, Node>,
-        ) -> (Ptr<Perm, Node<Prev, NewNext>>, Option<Ptr<Next, Node>>)
-        where
-            Perm: HasOwn<'this>,
-            Next: HasWeak<'next>,
-            NewNext: HasWeak<'next>,
-        {
-            <Node<_, _> as HasPermField<1, _>>::write_field_permission(self, next)
-        }
-        /// Like `write_prev` but only moves permissions around. Does not write to memory.
-        pub fn write_prev_permission<'this, 'prev, Perm, NewPrev>(
-            self: Ptr<Perm, Self>,
-            prev: Ptr<NewPrev, Node>,
-        ) -> (Ptr<Perm, Node<NewPrev, Next>>, Option<Ptr<Prev, Node>>)
-        where
-            Perm: HasOwn<'this>,
-            Prev: HasWeak<'prev>,
-            NewPrev: HasWeak<'prev>,
-        {
-            <Node<_, _> as HasPermField<0, _>>::write_field_permission(self, prev)
-        }
-
-        /// Give a name to the hidden lifetime in the permission of the `next` field.
-        pub fn unpack_next_lt<'this, Perm, R>(
-            self: Ptr<Perm, Self>,
-            f: impl for<'next> FnOnce(Ptr<Perm, Node<Prev, Next::Of<'next>>>) -> R,
-        ) -> R
-        where
-            Next: PackLt,
-        {
-            <Node<_, _> as HasPermField<1, _>>::unpack_field_lt(self, f)
-        }
-        /// Give a name to the hidden lifetime in the permission of the `prev` field.
-        pub fn unpack_prev_lt<'this, Perm, R>(
-            self: Ptr<Perm, Self>,
-            f: impl for<'prev> FnOnce(Ptr<Perm, Node<Prev::Of<'prev>, Next>>) -> R,
-        ) -> R
-        where
-            Prev: PackLt,
-        {
-            <Node<_, _> as HasPermField<0, _>>::unpack_field_lt(self, f)
-        }
-
-        /// Hide the name of the lifetime in the permission of the `next` field.
-        pub fn pack_next_lt<'this, 'next, Perm>(
-            ptr: Ptr<Perm, Node<Prev, Next::Of<'next>>>,
-        ) -> Ptr<Perm, Node<Prev, Next>>
-        where
-            Next: PackLt,
-        {
-            <Node<_, _> as HasPermField<1, _>>::pack_field_lt(ptr)
-        }
-        /// Hide the name of the lifetime in the permission of the `prev` field.
-        pub fn pack_prev_lt<'this, 'prev, Perm>(
-            ptr: Ptr<Perm, Node<Prev::Of<'prev>, Next>>,
-        ) -> Ptr<Perm, Node<Prev, Next>>
-        where
-            Prev: PackLt,
-        {
-            <Node<_, _> as HasPermField<0, _>>::pack_field_lt(ptr)
-        }
     }
 }
 
@@ -182,7 +97,7 @@ mod list_helpers {
             let (prev, next) = match next_or_prev {
                 Ok(next) => {
                     let next = NodeStateFwd::unpack(next);
-                    let (next, prev) = next.write_prev(Some(new.weak_ref()));
+                    let (next, prev) = next.write_field(FPrev, Some(new.weak_ref()));
                     let next = NodeStateFwd::pack(next);
                     (prev, Some(pack_lt(next)))
                 }
@@ -218,7 +133,7 @@ impl List {
         let ptr = self.0.take().map(|ptr| {
             ptr.unpack_lt(|ptr| {
                 let ptr = NodeStateFwd::unpack(ptr);
-                let (ptr, _) = ptr.write_prev(None);
+                let (ptr, _) = ptr.write_field(FPrev, None);
                 let ptr = NodeStateCentral::pack(ptr);
                 pack_lt(ptr)
             })
@@ -263,9 +178,9 @@ impl<'a> Iterator for ListIter<'a> {
         ) -> Option<Ptr<PackLt!(Read<'_, 'a, NodeStateFwd<'_, 'this>>), Node>> {
             let ptr = NodeStateFwd::unpack(ptr);
             // ptr: Ptr<Read<'this, 'a>, Node<Weak<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>>
-            ptr.unpack_next_lt(|ptr| {
+            ptr.unpack_field_lt(FNext, |ptr| {
                 // ptr: Ptr<Read<'this, 'a>, Node<Weak<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
-                let next = <Node<_, _> as HasPermField<1, _>>::read_field(ptr).1?;
+                let next = ptr.read_field(FNext).1?;
                 // next: Ptr<Read<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
                 Some(pack_lt(next))
             })
@@ -297,9 +212,9 @@ impl<'a> Iterator for ListIterMut<'a> {
         ) {
             let ptr = NodeStateFwd::unpack(ptr);
             // ptr: Ptr<Mut<'this, 'a>, Node<Weak<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>>
-            ptr.unpack_next_lt(|ptr| {
+            ptr.unpack_field_lt(FNext, |ptr| {
                 // ptr: Ptr<Mut<'this, 'a>, Node<Weak<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
-                let (ptr, next) = <Node<_, _> as HasPermField<1, _>>::read_field(ptr);
+                let (ptr, next) = ptr.read_field(FNext);
                 // ptr: Ptr<Mut<'this, 'a>, Node<Weak<'prev>, Weak<'next>>>
                 // next: Ptr<Mut<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
                 let ptr = ptr.erase_target_perms();
@@ -360,7 +275,7 @@ impl ListCursor<'_> {
         };
         ptr.unpack_lt(|ptr| {
             let ptr = NodeStateCentral::unpack(ptr);
-            let (ptr, _) = ptr.write_prev(None);
+            let (ptr, _) = ptr.write_field(FPrev, None);
             let ptr = NodeStateFwd::pack(ptr);
             let ptr = pack_lt(ptr);
             list.0 = Some(ptr);
@@ -381,7 +296,7 @@ impl ListCursor<'_> {
             // Expand the permissions to the fields of `Node`
             let ptr = NodeStateCentral::unpack(ptr);
             // Expand the lifetime
-            ptr.unpack_next_lt(|ptr| {
+            ptr.unpack_field_lt(FNext, |ptr| {
                 // ptr: Ptr<
                 //     PointsTo<'this>,
                 //     Node<
@@ -390,11 +305,11 @@ impl ListCursor<'_> {
                 //     >,
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
-                let (ptr, next) = extract_field_permission::<1, _, _, _>(ptr);
+                let (ptr, next) = extract_field_permission(ptr, FNext);
                 let next_or_prev = next.ok_or(Some(ptr.weak_ref()));
                 let new = list_helpers::prepend_inner(next_or_prev, val);
                 // Update `ptr.next`.
-                let (ptr, _) = ptr.write_next(Some(new));
+                let (ptr, _) = ptr.write_field(FNext, Some(new));
                 // Unexpand permissions
                 let ptr = NodeStateCentral::pack(ptr);
                 // ptr: Ptr<PointsTo<'next, NodeStateCentral<'next>>, Node>
@@ -432,7 +347,7 @@ impl ListCursor<'_> {
             //     >,
             // >
             // Expand the lifetime
-            ptr.unpack_next_lt(|ptr| {
+            ptr.unpack_field_lt(FNext, |ptr| {
                 // ptr: Ptr<
                 //     PointsTo<'this>,
                 //     Node<
@@ -441,7 +356,7 @@ impl ListCursor<'_> {
                 //     >,
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
-                let (ptr, next) = extract_field_permission(ptr);
+                let (ptr, next) = extract_field_permission(ptr, FNext);
                 // `unwrap` is ok because we checked earlier.
                 let next = next.unwrap();
                 // ptr: Ptr<
@@ -464,7 +379,7 @@ impl ListCursor<'_> {
                 //    >,
                 // >
                 // Insert ownership
-                let (ptr, _) = next.write_prev_permission(ptr);
+                let (ptr, _) = next.write_field_permission(FPrev, ptr);
                 // ptr: Ptr<PointsTo<'next>,
                 //    Node<
                 //      PointsTo<'this, NodeStateBwd<'this, 'next>>,
@@ -472,7 +387,7 @@ impl ListCursor<'_> {
                 //    >>
                 // >
                 // Pack lifetime
-                let ptr = Node::pack_prev_lt(ptr);
+                let ptr = Node::pack_field_lt(ptr, FPrev);
                 // ptr: Ptr<PointsTo<'next>,
                 //    Node<
                 //      PackLt!(PointsTo<'_, NodeStateBwd<'_, 'next>>),
@@ -506,9 +421,9 @@ impl ListCursor<'_> {
             // Expand the permissions to the fields of `Node`
             let ptr = NodeStateCentral::unpack(ptr);
             // Expand the lifetime
-            ptr.unpack_prev_lt(|ptr| {
+            ptr.unpack_field_lt(FPrev, |ptr| {
                 // Extract the ownership in `prev` (and get a copy of that pointer).
-                let (ptr, prev) = extract_field_permission(ptr);
+                let (ptr, prev) = extract_field_permission(ptr, FPrev);
                 // `unwrap` is ok because we checked earlier.
                 let prev = prev.unwrap();
                 // Unexpand the permissions
@@ -516,9 +431,9 @@ impl ListCursor<'_> {
                 // Expand the permissions
                 let prev = NodeStateBwd::unpack(prev);
                 // Insert ownership
-                let (ptr, _) = prev.write_next_permission(ptr);
+                let (ptr, _) = prev.write_field_permission(FNext, ptr);
                 // Pack lifetime
-                let ptr = Node::pack_next_lt(ptr);
+                let ptr = Node::pack_field_lt(ptr, FNext);
                 // Unexpand permissions
                 let ptr = NodeStateCentral::pack(ptr);
                 // Pack lifetime
