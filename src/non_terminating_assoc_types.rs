@@ -131,12 +131,9 @@ mod second_example {
         inner::<A, B, ()>(x)
     }
 
-    pub fn main() {
-        let x: usize = transmute(true);
-        println!("{x}");
+    #[test]
+    fn test_transmute() {
+        let x: &str = transmute(&[65u8, 66, 67][..]);
+        assert_eq!(x, "ABC");
     }
-}
-
-pub fn main() {
-    second_example::main();
 }

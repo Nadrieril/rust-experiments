@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 higher-kinded-types = "0.1.1"
+ghost-cell = "0.2.6"
 take_mut = "0.2.2"
