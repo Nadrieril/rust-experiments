@@ -128,6 +128,32 @@ impl List {
         });
         self.0 = Some(new);
     }
+    pub fn pop_front(&mut self) -> Option<usize> {
+        let ptr = self.0.take()?;
+        ptr.unpack_lt(|ptr| {
+            let ptr = NodeStateFwd::unpack(ptr);
+            ptr.unpack_field_lt(FNext, |ptr| {
+                // ptr: Ptr<
+                //     Own<'this>,
+                //     Node<
+                //         Weak<'static>,
+                //         Own<'next, NodeStateFwd<'next, 'this>>,
+                //     >,
+                // >
+                let (ptr, next) = ptr.read_field(FNext);
+                // ptr: Ptr<Own<'this>, Node<Weak<'static>, Weak<'next>>>
+                self.0 = next.map(|next| {
+                    // next: Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>
+                    let next = NodeStateFwd::unpack(next);
+                    let (next, _) = next.write_field(FPrev, None);
+                    let next = NodeStateFwd::pack(next);
+                    // next: Ptr<Own<'next, NodeStateFwd<'next, 'static>>, Node>
+                    pack_lt(next)
+                });
+                Some(ptr.into_inner().val)
+            })
+        })
+    }
 
     pub fn cursor(&mut self) -> ListCursor<'_> {
         let ptr = self.0.take().map(|ptr| {
@@ -157,6 +183,12 @@ impl List {
                 .as_mut()
                 .map(|ptr| ptr.unpack_lt_mut(|ptr| pack_lt(pack_lt(ptr)))),
         )
+    }
+}
+
+impl Drop for List {
+    fn drop(&mut self) {
+        while self.pop_front().is_some() {}
     }
 }
 
@@ -488,5 +520,4 @@ fn test() {
         *x += 1;
     }
     assert_eq!(list.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
-    // TODO: list drop
 }

@@ -41,9 +41,10 @@ impl<T> Ptr<PackLt!(Own<'_>), T> {
         let non_null = Box::into_non_null(Box::new(val));
         unsafe { Ptr::from_non_null(non_null) }
     }
-    #[expect(unused)]
+}
+impl<'this, Pred, T> Ptr<Own<'this, Pred>, T> {
     pub fn into_inner(self) -> T {
-        // Safety: we have points-to access.
+        // Safety: we have full ownership.
         *unsafe { Box::from_non_null(self.as_non_null()) }
     }
 }
