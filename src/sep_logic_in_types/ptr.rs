@@ -96,6 +96,7 @@ impl<Perm, T> Ptr<Perm, T> {
         T::erase_nested_perms(self)
     }
 
+    #[expect(unused)]
     pub fn erase_pred<'this>(self) -> Ptr<PointsTo<'this, Perm::Access>, T>
     where
         Perm: HasWeak<'this>,

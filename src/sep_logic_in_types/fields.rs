@@ -40,12 +40,15 @@ where
         FieldPerm::AccessThrough: HasWeak<'field>,
     {
         let ptr = self;
+        // Safety: by the invariant of `AccessThrough`, it's ok to get that pointer out.
         let field = ptr
             .deref()
             .field_ref(tok)
             .as_ref()
             .map(|ptr| unsafe { ptr.unsafe_copy().cast_access() });
-        let ptr = ptr.downgrade_field_permission(tok);
+        // Safety: we're downgrading a `HasWeak<'a>` to a `Weak<'a>`, which is fine even without
+        // any particular permissions on `ptr`.
+        let ptr = unsafe { ptr.cast_ty() };
         (ptr, field)
     }
     /// Writes the given pointer into the field.
@@ -96,18 +99,6 @@ where
         let ptr = unsafe { ptr.cast_ty() };
         (ptr, old_field_val)
     }
-    /// Downgrade the permission in the field.
-    fn downgrade_field_permission<'this, 'next, PtrPerm>(
-        self: Ptr<PtrPerm, Self>,
-        _tok: FieldTok,
-    ) -> Ptr<PtrPerm, Self::ChangePerm<Weak<'next>>>
-    where
-        FieldPerm: HasWeak<'next>,
-    {
-        // Safety: we're downgrading a `HasWeak<'a>` to a `Weak<'a>`, which is fine even without
-        // any particular permissions on `ptr`.
-        unsafe { self.cast_ty() }
-    }
 
     /// Give a name to the hidden lifetime in the permission of the field.
     fn unpack_field_lt<'this, PtrPerm, R>(
@@ -132,31 +123,6 @@ where
         FieldPerm: PackLt,
     {
         unsafe { ptr.cast_ty() }
-    }
-}
-
-/// Extract the permission stored in the field, leaving a `Weak` permission in its place. Does
-/// not write to memory.
-pub fn extract_field_permission<'this, 'field, FieldTok: Copy, T, PtrPerm, FieldPerm>(
-    ptr: Ptr<PtrPerm, T>,
-    tok: FieldTok,
-) -> (
-    Ptr<PtrPerm, T::ChangePerm<Weak<'field>>>,
-    Option<Ptr<FieldPerm, T::FieldTy>>,
-)
-where
-    T: HasPermField<FieldTok, FieldPerm>,
-    PtrPerm: HasOwn<'this>,
-    FieldPerm: HasWeak<'field>,
-{
-    match ptr
-        .deref()
-        .field_ref(tok)
-        .as_ref()
-        .map(|next| next.weak_ref_no_erase().erase_pred())
-    {
-        Some(weak) => ptr.write_field_permission(tok, weak),
-        None => (ptr.downgrade_field_permission(tok), None),
     }
 }
 

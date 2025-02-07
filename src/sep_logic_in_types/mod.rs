@@ -337,7 +337,7 @@ impl ListCursor<'_> {
                 //     >,
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
-                let (ptr, next) = extract_field_permission(ptr, FNext);
+                let (ptr, next) = ptr.read_field(FNext);
                 let next_or_prev = next.ok_or(Some(ptr.weak_ref()));
                 let new = list_helpers::prepend_inner(next_or_prev, val);
                 // Update `ptr.next`.
@@ -388,7 +388,7 @@ impl ListCursor<'_> {
                 //     >,
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
-                let (ptr, next) = extract_field_permission(ptr, FNext);
+                let (ptr, next) = ptr.read_field(FNext);
                 // `unwrap` is ok because we checked earlier.
                 let next = next.unwrap();
                 // ptr: Ptr<
@@ -455,7 +455,7 @@ impl ListCursor<'_> {
             // Expand the lifetime
             ptr.unpack_field_lt(FPrev, |ptr| {
                 // Extract the ownership in `prev` (and get a copy of that pointer).
-                let (ptr, prev) = extract_field_permission(ptr, FPrev);
+                let (ptr, prev) = ptr.read_field(FPrev);
                 // `unwrap` is ok because we checked earlier.
                 let prev = prev.unwrap();
                 // Unexpand the permissions
