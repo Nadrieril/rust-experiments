@@ -58,6 +58,7 @@ impl<Perm, T> Ptr<Perm, T> {
         }
     }
 
+    #[expect(unused)]
     pub fn copy_read<'this>(&self) -> Ptr<Read<'this, '_, Perm::Pred>, T>
     where
         Perm: HasRead<'this>,

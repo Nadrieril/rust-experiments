@@ -102,6 +102,61 @@ unsafe impl<'this, Pred> HasRead<'this> for Read<'this, '_, Pred> {}
 pub unsafe trait HasWeak<'this>: IsPointsTo {}
 unsafe impl<'this, Access, Pred> HasWeak<'this> for PointsTo<'this, Access, Pred> {}
 
+/// Describes the behavior of nested permissions. Namely, a `Ptr<Outer, Ptr<Self, T>>` can be
+/// turned into `(Ptr<Outer, Ptr<Weak, T>>, Ptr<Output, T>)`.
+pub unsafe trait AccessThrough<Outer>: IsPointsTo {
+    type AccessThrough: IsPointsTo<Pred = Self::Pred>;
+}
+mod access_through_impls {
+    use super::*;
+    /// `Own` gives full access to inner permissions.
+    unsafe impl<'this, Pred, Perm: IsPointsTo> AccessThrough<Own<'this, Pred>> for Perm {
+        type AccessThrough = Perm;
+    }
+    /// `Mut` gives at most `Mut` access.
+    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
+        AccessThrough<Mut<'outer, 'a, OuterPred>> for Own<'inner, InnerPred>
+    {
+        type AccessThrough = Mut<'inner, 'a, InnerPred>;
+    }
+    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
+        AccessThrough<Mut<'outer, 'a, OuterPred>> for Mut<'inner, 'b, InnerPred>
+    {
+        type AccessThrough = Mut<'inner, 'a, InnerPred>;
+    }
+    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
+        AccessThrough<Mut<'outer, 'a, OuterPred>> for Read<'inner, 'b, InnerPred>
+    {
+        type AccessThrough = Read<'inner, 'b, InnerPred>;
+    }
+    unsafe impl<'outer, 'inner, 'a, OuterPred, InnerPred> AccessThrough<Mut<'outer, 'a, OuterPred>>
+        for Weak<'inner, InnerPred>
+    {
+        type AccessThrough = Weak<'inner, InnerPred>;
+    }
+    /// `Read` gives at most `Read` access.
+    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
+        AccessThrough<Read<'outer, 'a, OuterPred>> for Own<'inner, InnerPred>
+    {
+        type AccessThrough = Read<'inner, 'a, InnerPred>;
+    }
+    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
+        AccessThrough<Read<'outer, 'a, OuterPred>> for Mut<'inner, 'b, InnerPred>
+    {
+        type AccessThrough = Read<'inner, 'b, InnerPred>;
+    }
+    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
+        AccessThrough<Read<'outer, 'a, OuterPred>> for Read<'inner, 'b, InnerPred>
+    {
+        type AccessThrough = Read<'inner, 'b, InnerPred>;
+    }
+    unsafe impl<'outer, 'inner, 'a, OuterPred, InnerPred> AccessThrough<Read<'outer, 'a, OuterPred>>
+        for Weak<'inner, InnerPred>
+    {
+        type AccessThrough = Weak<'inner, InnerPred>;
+    }
+}
+
 impl<'this, 'a, Perm, T> Ptr<Mut<'this, 'a, Perm>, T> {
     pub fn into_deref_mut(self) -> &'a mut T {
         // Safety: we have `Mut` permission for `'a`.

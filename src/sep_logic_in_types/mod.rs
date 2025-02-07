@@ -221,6 +221,13 @@ impl List {
                 .map(|ptr| ptr.unpack_lt_ref(|ptr| pack_lt(pack_lt(ptr)))),
         )
     }
+    pub fn iter_mut(&mut self) -> ListIterMut<'_> {
+        ListIterMut(
+            self.0
+                .as_mut()
+                .map(|ptr| ptr.unpack_lt_mut(|ptr| pack_lt(pack_lt(ptr)))),
+        )
+    }
 }
 
 // We existentially quantify two pointer tags: the current one and the previous one.
@@ -243,7 +250,7 @@ impl<'a> Iterator for ListIter<'a> {
             // ptr: Ptr<Read<'this, 'a>, Node<Weak<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>>
             node_helpers::unpack_next_lt(ptr, |ptr| {
                 // ptr: Ptr<Read<'this, 'a>, Node<Weak<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
-                let next = <Node<_, _> as HasPermField<1, _>>::read_field(ptr)?;
+                let next = <Node<_, _> as HasPermField<1, _>>::read_field(ptr).1?;
                 // next: Ptr<Read<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
                 Some(pack_lt(next))
             })
@@ -253,6 +260,42 @@ impl<'a> Iterator for ListIter<'a> {
                 let val = &ptr.deref().val;
                 self.0 = advance(ptr).map(pack_lt);
                 Some(val)
+            })
+        })
+    }
+}
+
+pub struct ListIterMut<'a>(
+    Option<
+        Ptr<PackLt!(<'prev> = PackLt!(<'this> = Mut<'this, 'a, NodeStateFwd<'this, 'prev>>)), Node>,
+    >,
+);
+
+impl<'a> Iterator for ListIterMut<'a> {
+    type Item = &'a mut usize;
+    fn next(&mut self) -> Option<Self::Item> {
+        fn advance<'this, 'prev, 'a>(
+            ptr: Ptr<Mut<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>,
+        ) -> (
+            Ptr<Mut<'this, 'a>, Node>,
+            Option<Ptr<PackLt!(Mut<'_, 'a, NodeStateFwd<'_, 'this>>), Node>>,
+        ) {
+            let ptr = NodeStateFwd::unpack(ptr);
+            // ptr: Ptr<Mut<'this, 'a>, Node<Weak<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>>
+            node_helpers::unpack_next_lt(ptr, |ptr| {
+                // ptr: Ptr<Mut<'this, 'a>, Node<Weak<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
+                let (ptr, next) = <Node<_, _> as HasPermField<1, _>>::read_field(ptr);
+                // ptr: Ptr<Mut<'this, 'a>, Node<Weak<'prev>, Weak<'next>>>
+                // next: Ptr<Mut<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
+                let ptr = ptr.erase_target_perms();
+                (ptr, next.map(pack_lt))
+            })
+        }
+        self.0.take()?.unpack_lt(|ptr| {
+            ptr.unpack_lt(|ptr| {
+                let (ptr, next) = advance(ptr);
+                self.0 = next.map(pack_lt);
+                Some(&mut ptr.into_deref_mut().val)
             })
         })
     }
@@ -511,6 +554,9 @@ fn test() {
     drop(cursor);
 
     assert_eq!(list.iter().copied().collect::<Vec<_>>(), vec![0, 1, 2]);
+    for x in list.iter_mut() {
+        *x += 1;
+    }
+    assert_eq!(list.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
     // TODO: list drop
-    // TODO: iter_mut
 }

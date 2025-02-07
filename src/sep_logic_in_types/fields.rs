@@ -21,16 +21,25 @@ pub unsafe trait HasPermField<const F: usize, FieldPerm>: EraseNestedPerms {
     fn field_ref(&self) -> &Option<Ptr<FieldPerm, Self::FieldTy>>;
     fn field_mut(&mut self) -> &mut Option<Ptr<FieldPerm, Self::FieldTy>>;
 
-    fn read_field<'this, 'field, 'a, Pred>(
-        ptr: Ptr<Read<'this, 'a, Pred>, Self>,
-    ) -> Option<Ptr<Read<'field, 'a, FieldPerm::Pred>, Self::FieldTy>>
+    /// Read the cintents of the field, taking the permissions with it as much as possible.
+    fn read_field<'this, 'field, 'a, PtrPerm>(
+        ptr: Ptr<PtrPerm, Self>,
+    ) -> (
+        Ptr<PtrPerm, Self::ChangePerm<Weak<'field>>>,
+        Option<Ptr<FieldPerm::AccessThrough, Self::FieldTy>>,
+    )
     where
-        FieldPerm: HasRead<'field>,
+        PtrPerm: HasRead<'this>,
+        FieldPerm: HasWeak<'field>,
+        FieldPerm: AccessThrough<PtrPerm>,
+        FieldPerm::AccessThrough: HasWeak<'field>,
     {
-        ptr.deref()
+        let field = ptr
             .field_ref()
             .as_ref()
-            .map(|ptr| unsafe { ptr.copy_read().cast_access() })
+            .map(|ptr| unsafe { ptr.unsafe_copy().cast_access() });
+        let ptr = Self::downgrade_field_permission(ptr);
+        (ptr, field)
     }
     /// Writes the given pointer into the field.
     fn write_field<'this, PtrPerm, NewPerm>(
