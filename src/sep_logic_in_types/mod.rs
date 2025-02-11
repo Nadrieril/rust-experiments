@@ -63,8 +63,8 @@ impl<'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'this, 'next> {
 
 /// A Node whose `prev` and `next` fields are each a forward-owned linked list with back-edges.
 /// This functions as a doubly-linked-list zipper.
-struct NodeStateCentral<'this>(InvariantLifetime<'this>);
-impl<'this> PackedPredicate<'this, Node> for NodeStateCentral<'this> {
+struct NodeStateCursor<'this>(InvariantLifetime<'this>);
+impl<'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
     type Unpacked =
         Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
 }
@@ -192,7 +192,7 @@ impl List {
             ptr.into_ptr().unpack_lt(|ptr| {
                 let ptr = NodeStateFwd::unpack(ptr);
                 let (ptr, _) = ptr.write_field(FPrev, None);
-                let ptr = NodeStateCentral::pack(ptr);
+                let ptr = NodeStateCursor::pack(ptr);
                 pack_lt(ptr)
             })
         });
@@ -297,7 +297,7 @@ impl<'a> Iterator for ListIterMut<'a> {
 
 #[derive(Debug)]
 pub struct ListCursor<'a> {
-    ptr: Option<Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>>,
+    ptr: Option<Ptr<PackLt!(Own<'_, NodeStateCursor<'_>>), Node>>,
     /// Borrow of the original list. While the cursor exists, the list thinks it's empty. Call
     /// `restore_list` to restore the list to the expected state.
     /// This is only `None` if we moved the value out, to prevent drop.
@@ -338,7 +338,7 @@ impl ListCursor<'_> {
             return;
         };
         ptr.unpack_lt(|ptr| {
-            let ptr = NodeStateCentral::unpack(ptr);
+            let ptr = NodeStateCursor::unpack(ptr);
             let (ptr, _) = ptr.write_field(FPrev, None);
             let ptr = NodeStateFwd::pack(ptr);
             let ptr = pack_lt(ptr);
@@ -348,18 +348,18 @@ impl ListCursor<'_> {
 
     /// Helper: split off the forward list that includes the current node and the rest.
     fn split<R>(
-        ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>,
+        ptr: Ptr<PackLt!(Own<'_, NodeStateCursor<'_>>), Node>,
         f: impl for<'this> FnOnce(
             Ptr<Own<'this>, Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Weak<'_>)>>,
             Option<NonEmptyListInner<'this>>,
         ) -> R,
     ) -> R {
-        // ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
+        // ptr: Ptr<PackLt!(Own<'_, NodeStateCursor<'_>>), Node>
         // Expand the lifetime
         ptr.unpack_lt(|ptr| {
-            // ptr: Ptr<Own<'this, NodeStateCentral<'this>>, Node>
+            // ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>
             // Expand the permissions to the fields of `Node`
-            let ptr = NodeStateCentral::unpack(ptr);
+            let ptr = NodeStateCursor::unpack(ptr);
             // Expand the lifetime
             ptr.unpack_field_lt(FNext, |ptr| {
                 // ptr: Ptr<
@@ -382,13 +382,13 @@ impl ListCursor<'_> {
     fn unsplit<'this>(
         ptr: Ptr<Own<'this>, Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Weak<'_>)>>,
         next: Option<NonEmptyListInner<'this>>,
-    ) -> Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node> {
+    ) -> Ptr<PackLt!(Own<'_, NodeStateCursor<'_>>), Node> {
         let next = next.map(|next| next.into_ptr());
         // Update `ptr.next`.
         let (ptr, _) = ptr.write_field(FNext, next);
         // Unexpand permissions
-        let ptr = NodeStateCentral::pack(ptr);
-        // ptr: Ptr<Own<'next, NodeStateCentral<'next>>, Node>
+        let ptr = NodeStateCursor::pack(ptr);
+        // ptr: Ptr<Own<'next, NodeStateCursor<'next>>, Node>
         // Pack lifetime
         pack_lt(ptr)
     }
@@ -406,7 +406,7 @@ impl ListCursor<'_> {
                 None => NonEmptyListInner::new(val, Some(ptr.weak_ref())),
             };
             let ptr = Self::unsplit(ptr, Some(next));
-            // ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
+            // ptr: Ptr<PackLt!(Own<'_, NodeStateCursor<'_>>), Node>
             Self {
                 ptr: Some(ptr),
                 list: self.list.take(),
@@ -441,12 +441,12 @@ impl ListCursor<'_> {
             self.ptr = Some(ptr);
             return Err(self);
         };
-        // self: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
+        // self: Ptr<PackLt!(Own<'_, NodeStateCursor<'_>>), Node>
         // Expand the lifetime
         ptr.unpack_lt(|ptr| {
-            // ptr: Ptr<Own<'this, NodeStateCentral<'this>>, Node>
+            // ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>
             // Expand the permissions to the fields of `Node`
-            let ptr = NodeStateCentral::unpack(ptr);
+            let ptr = NodeStateCursor::unpack(ptr);
             // ptr: Ptr<
             //     Own<'this>,
             //     Node<
@@ -503,11 +503,11 @@ impl ListCursor<'_> {
                 //    >>
                 // >
                 // Unexpand permissions
-                let ptr = NodeStateCentral::pack(ptr);
-                // ptr: Ptr<Own<'next, NodeStateCentral<'next>>, Node>
+                let ptr = NodeStateCursor::pack(ptr);
+                // ptr: Ptr<Own<'next, NodeStateCursor<'next>>, Node>
                 // Pack lifetime
                 let ptr = pack_lt(ptr);
-                // ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
+                // ptr: Ptr<PackLt!(Own<'_, NodeStateCursor<'_>>), Node>
                 Ok(Self {
                     ptr: Some(ptr),
                     list: self.list.take(),
@@ -527,7 +527,7 @@ impl ListCursor<'_> {
         // Expand the lifetime
         ptr.unpack_lt(|ptr| {
             // Expand the permissions to the fields of `Node`
-            let ptr = NodeStateCentral::unpack(ptr);
+            let ptr = NodeStateCursor::unpack(ptr);
             // Expand the lifetime
             ptr.unpack_field_lt(FPrev, |ptr| {
                 // Extract the ownership in `prev` (and get a copy of that pointer).
@@ -543,7 +543,7 @@ impl ListCursor<'_> {
                 // Pack lifetime
                 let ptr = Node::pack_field_lt(ptr, FNext);
                 // Unexpand permissions
-                let ptr = NodeStateCentral::pack(ptr);
+                let ptr = NodeStateCursor::pack(ptr);
                 // Pack lifetime
                 let ptr = pack_lt(ptr);
                 Ok(Self {
