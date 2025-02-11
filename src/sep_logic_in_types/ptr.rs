@@ -10,14 +10,16 @@ pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
 /// `Perm` will generally be either `PointsTo<...>` or `PackLt!(PointsTo<...>)`.
 pub struct Ptr<Perm, T> {
     ptr: NonNull<T>,
-    pred: PhantomData<Perm>,
+    /// We're invariant in `T` to avoid surprises. We can only soundly be covariant in `T` for some
+    /// values of `Perm`, which seems hard to express, if at all possible.
+    phantom: PhantomData<(Perm, *mut T)>,
 }
 
 impl<Perm, T> Ptr<Perm, T> {
     pub unsafe fn from_non_null(ptr: NonNull<T>) -> Self {
         Self {
             ptr,
-            pred: PhantomData,
+            phantom: PhantomData,
         }
     }
     pub fn as_non_null(&self) -> NonNull<T> {
@@ -27,13 +29,13 @@ impl<Perm, T> Ptr<Perm, T> {
     pub unsafe fn cast_perm<NewPerm>(self) -> Ptr<NewPerm, T> {
         Ptr {
             ptr: self.ptr,
-            pred: PhantomData,
+            phantom: PhantomData,
         }
     }
     pub unsafe fn cast_ty<U>(self) -> Ptr<Perm, U> {
         Ptr {
             ptr: self.ptr.cast(),
-            pred: PhantomData,
+            phantom: PhantomData,
         }
     }
     pub unsafe fn cast_access<'this, NewPerm>(self) -> Ptr<NewPerm, T>
@@ -54,7 +56,7 @@ impl<Perm, T> Ptr<Perm, T> {
     pub unsafe fn unsafe_copy(&self) -> Self {
         Ptr {
             ptr: self.ptr,
-            pred: PhantomData,
+            phantom: PhantomData,
         }
     }
 
