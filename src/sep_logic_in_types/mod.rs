@@ -346,7 +346,7 @@ impl ListCursor<'_> {
         });
     }
 
-    /// Helper: split the cursor into a backward and forward list.
+    /// Helper: split off the forward list that includes the current node and the rest.
     fn split<R>(
         ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>,
         f: impl for<'this> FnOnce(
@@ -411,6 +411,24 @@ impl ListCursor<'_> {
                 ptr: Some(ptr),
                 list: self.list.take(),
             }
+        })
+    }
+
+    pub fn remove(mut self) -> (Self, Option<usize>) {
+        let Some(ptr) = self.ptr.take() else {
+            return (self, None);
+        };
+        Self::split(ptr, |ptr, next| {
+            let (next, val) = match next {
+                Some(next) => next.pop_front(),
+                None => (None, None),
+            };
+            let ptr = Self::unsplit(ptr, next);
+            let this = Self {
+                ptr: Some(ptr),
+                list: self.list.take(),
+            };
+            (this, val)
         })
     }
 
@@ -565,6 +583,9 @@ fn test() {
     let cursor = cursor.next().unwrap();
     assert_eq!(cursor.val().unwrap(), &1);
     let cursor = cursor.next().unwrap();
+    assert_eq!(cursor.val().unwrap(), &2);
+    let cursor = cursor.insert_after(42);
+    let (cursor, _) = cursor.remove();
     assert_eq!(cursor.val().unwrap(), &2);
     let cursor = cursor.prev().unwrap();
     assert_eq!(cursor.val().unwrap(), &1);
