@@ -69,6 +69,7 @@ impl<'this> PackedPredicate<'this, Node> for NodeStateCentral<'this> {
         Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
 }
 
+use list_helpers::NonEmptyListInner;
 mod list_helpers {
     use super::fields::*;
     use super::permissions::*;
@@ -77,10 +78,61 @@ mod list_helpers {
     use super::*;
     use higher_kinded_types::ForLt as PackLt;
 
+    #[derive(Debug)]
+    pub struct NonEmptyListInner<'prev>(Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node>);
+
+    impl<'prev> NonEmptyListInner<'prev> {
+        pub fn new(val: usize, prev: Option<Ptr<Weak<'prev>, Node>>) -> Self {
+            Self(prepend_inner(Err(prev), val))
+        }
+        pub fn from_ptr(ptr: Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node>) -> Self {
+            Self(ptr)
+        }
+        pub fn into_ptr(self) -> Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+            self.0
+        }
+        pub fn as_ptr(&self) -> &Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+            &self.0
+        }
+        pub fn as_ptr_mut(&mut self) -> &mut Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+            &mut self.0
+        }
+
+        pub fn prepend_inner(self, val: usize) -> Self {
+            self.0.unpack_lt(|ptr| Self(prepend_inner(Ok(ptr), val)))
+        }
+        pub fn pop_front(self) -> (Option<Self>, Option<usize>) {
+            self.into_ptr().unpack_lt(|ptr| {
+                let ptr = NodeStateFwd::unpack(ptr);
+                ptr.unpack_field_lt(FNext, |ptr| {
+                    // ptr: Ptr<
+                    //     Own<'this>,
+                    //     Node<
+                    //         Weak<'prev>,
+                    //         Own<'next, NodeStateFwd<'next, 'this>>,
+                    //     >,
+                    // >
+                    let (ptr, next) = ptr.read_field(FNext);
+                    // ptr: Ptr<Own<'this>, Node<Weak<'prev>, Weak<'next>>>
+                    let Node { prev, val, .. } = ptr.into_inner();
+                    let list = next.map(|next| {
+                        // next: Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>
+                        let next = NodeStateFwd::unpack(next);
+                        let (next, _) = next.write_field(FPrev, prev);
+                        let next = NodeStateFwd::pack(next);
+                        // next: Ptr<Own<'next, NodeStateFwd<'next, 'prev>>, Node>
+                        Self(pack_lt(next))
+                    });
+                    (list, Some(val))
+                })
+            })
+        }
+    }
+
     /// Allocates a new node with the given value. This can either take a `next` node before
     /// which to insert the node, or a `prev` pointer to give to the new node. This ensures
     /// that proper `prev` discipline is preserved.
-    pub fn prepend_inner<'this, 'prev>(
+    fn prepend_inner<'this, 'prev>(
         next_or_prev: Result<
             Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
             Option<Ptr<Weak<'prev>, Node>>,
@@ -112,7 +164,7 @@ mod list_helpers {
 }
 
 #[derive(Debug)]
-pub struct List(Option<Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'static>>), Node>>);
+pub struct List(Option<NonEmptyListInner<'static>>);
 
 impl List {
     pub fn new() -> Self {
@@ -122,42 +174,22 @@ impl List {
     /// Add a new element at the start of the list.
     pub fn prepend(&mut self, val: usize) {
         let ptr = self.0.take();
-        let new = unpack_opt_lt(ptr, |ptr| {
-            let next_or_prev = ptr.ok_or(None);
-            list_helpers::prepend_inner(next_or_prev, val)
-        });
+        let new = match ptr {
+            Some(list) => list.prepend_inner(val),
+            None => NonEmptyListInner::new(val, None),
+        };
         self.0 = Some(new);
     }
     pub fn pop_front(&mut self) -> Option<usize> {
-        let ptr = self.0.take()?;
-        ptr.unpack_lt(|ptr| {
-            let ptr = NodeStateFwd::unpack(ptr);
-            ptr.unpack_field_lt(FNext, |ptr| {
-                // ptr: Ptr<
-                //     Own<'this>,
-                //     Node<
-                //         Weak<'static>,
-                //         Own<'next, NodeStateFwd<'next, 'this>>,
-                //     >,
-                // >
-                let (ptr, next) = ptr.read_field(FNext);
-                // ptr: Ptr<Own<'this>, Node<Weak<'static>, Weak<'next>>>
-                self.0 = next.map(|next| {
-                    // next: Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>
-                    let next = NodeStateFwd::unpack(next);
-                    let (next, _) = next.write_field(FPrev, None);
-                    let next = NodeStateFwd::pack(next);
-                    // next: Ptr<Own<'next, NodeStateFwd<'next, 'static>>, Node>
-                    pack_lt(next)
-                });
-                Some(ptr.into_inner().val)
-            })
-        })
+        let list = self.0.take()?;
+        let (list, val) = list.pop_front();
+        self.0 = list;
+        val
     }
 
     pub fn cursor(&mut self) -> ListCursor<'_> {
         let ptr = self.0.take().map(|ptr| {
-            ptr.unpack_lt(|ptr| {
+            ptr.into_ptr().unpack_lt(|ptr| {
                 let ptr = NodeStateFwd::unpack(ptr);
                 let (ptr, _) = ptr.write_field(FPrev, None);
                 let ptr = NodeStateCentral::pack(ptr);
@@ -174,14 +206,14 @@ impl List {
         ListIter(
             self.0
                 .as_ref()
-                .map(|ptr| ptr.unpack_lt_ref(|ptr| pack_lt(pack_lt(ptr)))),
+                .map(|ptr| ptr.as_ptr().unpack_lt_ref(|ptr| pack_lt(pack_lt(ptr)))),
         )
     }
     pub fn iter_mut(&mut self) -> ListIterMut<'_> {
         ListIterMut(
             self.0
                 .as_mut()
-                .map(|ptr| ptr.unpack_lt_mut(|ptr| pack_lt(pack_lt(ptr)))),
+                .map(|ptr| ptr.as_ptr_mut().unpack_lt_mut(|ptr| pack_lt(pack_lt(ptr)))),
         )
     }
 }
@@ -310,18 +342,19 @@ impl ListCursor<'_> {
             let (ptr, _) = ptr.write_field(FPrev, None);
             let ptr = NodeStateFwd::pack(ptr);
             let ptr = pack_lt(ptr);
-            list.0 = Some(ptr);
+            list.0 = Some(NonEmptyListInner::from_ptr(ptr));
         });
     }
 
-    pub fn insert_after(mut self, val: usize) -> Self {
-        let Some(ptr) = self.ptr.take() else {
-            // The original list was empty.
-            let list = self.list.take().unwrap();
-            list.prepend(val);
-            return list.cursor();
-        };
-        // self: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
+    /// Helper: split the cursor into a backward and forward list.
+    fn split<R>(
+        ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>,
+        f: impl for<'this> FnOnce(
+            Ptr<Own<'this>, Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Weak<'_>)>>,
+            Option<NonEmptyListInner<'this>>,
+        ) -> R,
+    ) -> R {
+        // ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
         // Expand the lifetime
         ptr.unpack_lt(|ptr| {
             // ptr: Ptr<Own<'this, NodeStateCentral<'this>>, Node>
@@ -338,21 +371,46 @@ impl ListCursor<'_> {
                 // >
                 // Extract the ownership in `next` (and get a copy of that pointer).
                 let (ptr, next) = ptr.read_field(FNext);
-                let next_or_prev = next.ok_or(Some(ptr.weak_ref()));
-                let new = list_helpers::prepend_inner(next_or_prev, val);
-                // Update `ptr.next`.
-                let (ptr, _) = ptr.write_field(FNext, Some(new));
-                // Unexpand permissions
-                let ptr = NodeStateCentral::pack(ptr);
-                // ptr: Ptr<Own<'next, NodeStateCentral<'next>>, Node>
-                // Pack lifetime
-                let ptr = pack_lt(ptr);
-                // ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
-                Self {
-                    ptr: Some(ptr),
-                    list: self.list.take(),
-                }
+                let ptr = Node::pack_field_lt(ptr, FNext);
+                let next = next.map(|next| NonEmptyListInner::from_ptr(pack_lt(next)));
+                f(ptr, next)
             })
+        })
+    }
+
+    /// Helper: reverse `split`.
+    fn unsplit<'this>(
+        ptr: Ptr<Own<'this>, Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Weak<'_>)>>,
+        next: Option<NonEmptyListInner<'this>>,
+    ) -> Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node> {
+        let next = next.map(|next| next.into_ptr());
+        // Update `ptr.next`.
+        let (ptr, _) = ptr.write_field(FNext, next);
+        // Unexpand permissions
+        let ptr = NodeStateCentral::pack(ptr);
+        // ptr: Ptr<Own<'next, NodeStateCentral<'next>>, Node>
+        // Pack lifetime
+        pack_lt(ptr)
+    }
+
+    pub fn insert_after(mut self, val: usize) -> Self {
+        let Some(ptr) = self.ptr.take() else {
+            // The original list was empty.
+            let list = self.list.take().unwrap();
+            list.prepend(val);
+            return list.cursor();
+        };
+        Self::split(ptr, |ptr, next| {
+            let next = match next {
+                Some(next) => next.prepend_inner(val),
+                None => NonEmptyListInner::new(val, Some(ptr.weak_ref())),
+            };
+            let ptr = Self::unsplit(ptr, Some(next));
+            // ptr: Ptr<PackLt!(Own<'_, NodeStateCentral<'_>>), Node>
+            Self {
+                ptr: Some(ptr),
+                list: self.list.take(),
+            }
         })
     }
 
