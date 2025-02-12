@@ -414,7 +414,7 @@ impl ListCursor<'_> {
         })
     }
 
-    pub fn remove(mut self) -> (Self, Option<usize>) {
+    pub fn remove_after(mut self) -> (Self, Option<usize>) {
         let Some(ptr) = self.ptr.take() else {
             return (self, None);
         };
@@ -585,7 +585,13 @@ fn test() {
     let cursor = cursor.next().unwrap();
     assert_eq!(cursor.val().unwrap(), &2);
     let cursor = cursor.insert_after(42);
-    let (cursor, _) = cursor.remove();
+    let cursor = cursor.next().unwrap();
+    assert_eq!(cursor.val().unwrap(), &42);
+    // Does nothing.
+    let (cursor, _) = cursor.remove_after();
+    assert_eq!(cursor.val().unwrap(), &42);
+    let cursor = cursor.prev().unwrap();
+    let (cursor, _) = cursor.remove_after();
     assert_eq!(cursor.val().unwrap(), &2);
     let cursor = cursor.prev().unwrap();
     assert_eq!(cursor.val().unwrap(), &1);
