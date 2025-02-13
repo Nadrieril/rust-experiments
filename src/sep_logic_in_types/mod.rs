@@ -102,6 +102,7 @@ unsafe impl<Prev, Next> HasPermField<FNext, Next> for Node<Prev, Next> {
 
 /// A linked list with backward pointers, with ownership that follows the forward pointers.
 struct NodeStateFwd<'this, 'prev>(InvariantLifetime<'this>, InvariantLifetime<'prev>);
+impl PointeePred for NodeStateFwd<'_, '_> {}
 impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
     type Unpacked = Node<PointsTo<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
 }
@@ -109,6 +110,7 @@ impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
 /// Like `NodeStateFwd` except flipping the fields of `Node` (the "forward" pointer is in the
 /// `Node.prev` field instead).
 struct NodeStateBwd<'this, 'next>(InvariantLifetime<'this>, InvariantLifetime<'next>);
+impl PointeePred for NodeStateBwd<'_, '_> {}
 impl<'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'this, 'next> {
     type Unpacked = Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PointsTo<'next>>;
 }
@@ -116,6 +118,7 @@ impl<'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'this, 'next> {
 /// A Node whose `prev` and `next` fields are each a forward-owned linked list with back-edges.
 /// This functions as a doubly-linked-list zipper.
 struct NodeStateCursor<'this>(InvariantLifetime<'this>);
+impl PointeePred for NodeStateCursor<'_> {}
 impl<'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
     type Unpacked =
         Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
