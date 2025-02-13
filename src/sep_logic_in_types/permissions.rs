@@ -96,6 +96,10 @@ pub unsafe trait HasRead<'this>: HasWeak<'this> {}
 unsafe impl<'this, T: HasMut<'this>> HasRead<'this> for T {}
 unsafe impl<'this, Pred> HasRead<'this> for Read<'this, '_, Pred> {}
 
+/// The target is guaranteed to stay allocated as long as the permission exists.
+pub unsafe trait HasAllocated<'this>: IsPointsTo {}
+unsafe impl<'this, T: HasRead<'this>> HasAllocated<'this> for T {}
+
 pub unsafe trait HasWeak<'this>: IsPointsTo {}
 unsafe impl<'this, Access, Pred> HasWeak<'this> for PointsTo<'this, Access, Pred> {}
 

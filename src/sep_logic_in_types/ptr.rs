@@ -137,6 +137,26 @@ impl<Perm, T> Ptr<Perm, T> {
     }
 }
 
+impl<'this, P, T> Ptr<P, T> {
+    /// Compare two pointers for equality. Because of the `HasAllocated` constraint, the target can
+    /// never have been deallocated, so address equality implies that the pointers are
+    /// interchangeable. The returned equality predicate is a witness of this interchangeability.
+    /// This would not be the case with `HasWeak`, as two pointers can have the same address but
+    /// different provenance.
+    #[expect(unused)]
+    pub fn eq<'other, Q, U>(&self, other: &Ptr<Q, U>) -> Option<EqPredicate<'this, 'other>>
+    where
+        P: HasAllocated<'this>,
+        Q: HasAllocated<'other>,
+    {
+        if self.ptr.addr() == other.ptr.addr() {
+            Some(unsafe { EqPredicate::make() })
+        } else {
+            None
+        }
+    }
+}
+
 /// Hide the lifetime in a pointer permissions.
 pub fn pack_lt<'this, Perm: PackLt, T>(ptr: Ptr<Perm::Of<'this>, T>) -> Ptr<Perm, T> {
     unsafe { ptr.cast_perm() }

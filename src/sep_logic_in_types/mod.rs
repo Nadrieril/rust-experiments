@@ -1,4 +1,5 @@
 use higher_kinded_types::ForLt as PackLt;
+use std::marker::PhantomData;
 
 mod fields;
 mod permissions;
@@ -30,6 +31,31 @@ impl<T: PackLt> ExistsLt<T> {
         f: impl for<'this> FnOnce(&'a mut T::Of<'this>) -> R,
     ) -> R {
         f(unsafe { std::mem::transmute(&mut self.inner) })
+    }
+}
+
+/// Witness that `'a` and `'b` are interchangeable, for an notion of "interchangeable" appropriate
+/// to what the brands are used for.
+#[derive(Debug, Clone, Copy)]
+pub struct EqPredicate<'a, 'b>(InvariantLifetime<'a>, InvariantLifetime<'b>);
+
+impl<'a> EqPredicate<'a, 'a> {
+    pub fn refl() -> Self {
+        Self(PhantomData, PhantomData)
+    }
+}
+impl<'a, 'b> EqPredicate<'a, 'b> {
+    /// Safety: the brands must be the same, for an appropriate notion of "same".
+    pub unsafe fn make() -> Self {
+        Self(PhantomData, PhantomData)
+    }
+    pub fn apply<T: PackLt>(self, x: T::Of<'a>) -> T::Of<'b> {
+        // Safety: this can only be constructed when `'a == 'b`, and the lifetimes are invariant.
+        // Hence the types are actually equal.
+        unsafe { std::mem::transmute(x) }
+    }
+    pub fn flip(self) -> EqPredicate<'b, 'a> {
+        EqPredicate(PhantomData, PhantomData)
     }
 }
 
