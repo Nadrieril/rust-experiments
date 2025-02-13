@@ -76,14 +76,14 @@ impl<Perm, T> Ptr<Perm, T> {
         unsafe { self.unsafe_copy().cast_access() }
     }
 
-    pub fn weak_ref_no_erase<'this>(&self) -> Ptr<Weak<'this, Perm::Pred>, T>
+    pub fn weak_ref_no_erase<'this>(&self) -> Ptr<PointsTo<'this, (), Perm::Pred>, T>
     where
         Perm: IsPointsTo<'this>,
     {
         unsafe { self.unsafe_copy().cast_access() }
     }
 
-    pub fn weak_ref<'this>(&self) -> Ptr<Weak<'this, Perm::Pred>, T::Erased>
+    pub fn weak_ref<'this>(&self) -> Ptr<PointsTo<'this, (), Perm::Pred>, T::Erased>
     where
         Perm: IsPointsTo<'this>,
         T: EraseNestedPerms,

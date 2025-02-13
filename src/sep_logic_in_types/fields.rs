@@ -30,7 +30,7 @@ where
         self: Ptr<PtrPerm, Self>,
         tok: FieldTok,
     ) -> (
-        Ptr<PtrPerm, Self::ChangePerm<Weak<'field>>>,
+        Ptr<PtrPerm, Self::ChangePerm<PointsTo<'field>>>,
         Option<Ptr<FieldPerm::AccessThrough, Self::FieldTy>>,
     )
     where
@@ -45,7 +45,7 @@ where
             .field_ref(tok)
             .as_ref()
             .map(|ptr| unsafe { ptr.unsafe_copy().cast_access() });
-        // Safety: we're downgrading a `IsPointsTo<'a>` to a `Weak<'a>`, which is fine even without
+        // Safety: we're downgrading a `IsPointsTo<'a>` to a `PointsTo<'a>`, which is fine even without
         // any particular permissions on `ptr`.
         let ptr = unsafe { ptr.cast_ty() };
         (ptr, field)

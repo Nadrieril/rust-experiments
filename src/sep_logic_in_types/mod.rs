@@ -103,14 +103,14 @@ unsafe impl<Prev, Next> HasPermField<FNext, Next> for Node<Prev, Next> {
 /// A linked list with backward pointers, with ownership that follows the forward pointers.
 struct NodeStateFwd<'this, 'prev>(InvariantLifetime<'this>, InvariantLifetime<'prev>);
 impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
-    type Unpacked = Node<Weak<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
+    type Unpacked = Node<PointsTo<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
 }
 
 /// Like `NodeStateFwd` except flipping the fields of `Node` (the "forward" pointer is in the
 /// `Node.prev` field instead).
 struct NodeStateBwd<'this, 'next>(InvariantLifetime<'this>, InvariantLifetime<'next>);
 impl<'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'this, 'next> {
-    type Unpacked = Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), Weak<'next>>;
+    type Unpacked = Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PointsTo<'next>>;
 }
 
 /// A Node whose `prev` and `next` fields are each a forward-owned linked list with back-edges.
@@ -134,7 +134,7 @@ mod list_helpers {
     pub struct NonEmptyListInner<'prev>(Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node>);
 
     impl<'prev> NonEmptyListInner<'prev> {
-        pub fn new(val: usize, prev: Option<Ptr<Weak<'prev>, Node>>) -> Self {
+        pub fn new(val: usize, prev: Option<Ptr<PointsTo<'prev>, Node>>) -> Self {
             Self(prepend_inner(Err(prev), val))
         }
         pub fn from_ptr(ptr: Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node>) -> Self {
@@ -160,12 +160,12 @@ mod list_helpers {
                     // ptr: Ptr<
                     //     Own<'this>,
                     //     Node<
-                    //         Weak<'prev>,
+                    //         PointsTo<'prev>,
                     //         Own<'next, NodeStateFwd<'next, 'this>>,
                     //     >,
                     // >
                     let (ptr, next) = ptr.read_field(FNext);
-                    // ptr: Ptr<Own<'this>, Node<Weak<'prev>, Weak<'next>>>
+                    // ptr: Ptr<Own<'this>, Node<PointsTo<'prev>, PointsTo<'next>>>
                     let Node { prev, val, .. } = ptr.into_inner();
                     let list = next.map(|next| {
                         // next: Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>
@@ -187,7 +187,7 @@ mod list_helpers {
     fn prepend_inner<'this, 'prev>(
         next_or_prev: Result<
             Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-            Option<Ptr<Weak<'prev>, Node>>,
+            Option<Ptr<PointsTo<'prev>, Node>>,
         >,
         val: usize,
     ) -> Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
@@ -215,6 +215,7 @@ mod list_helpers {
     }
 }
 
+// TODO: to represent pointer-to-last, let FwdList contain (ptr, wand<ptr, BwdList>) and vice-versa!
 #[derive(Debug)]
 pub struct List(Option<NonEmptyListInner<'static>>);
 
@@ -293,9 +294,9 @@ impl<'a> Iterator for ListIter<'a> {
             ptr: Ptr<Read<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>,
         ) -> Option<Ptr<PackLt!(Read<'_, 'a, NodeStateFwd<'_, 'this>>), Node>> {
             let ptr = NodeStateFwd::unpack(ptr);
-            // ptr: Ptr<Read<'this, 'a>, Node<Weak<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>>
+            // ptr: Ptr<Read<'this, 'a>, Node<PointsTo<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>>
             ptr.unpack_field_lt(FNext, |ptr| {
-                // ptr: Ptr<Read<'this, 'a>, Node<Weak<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
+                // ptr: Ptr<Read<'this, 'a>, Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
                 let next = ptr.read_field(FNext).1?;
                 // next: Ptr<Read<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
                 Some(pack_lt(next))
@@ -327,11 +328,11 @@ impl<'a> Iterator for ListIterMut<'a> {
             Option<Ptr<PackLt!(Mut<'_, 'a, NodeStateFwd<'_, 'this>>), Node>>,
         ) {
             let ptr = NodeStateFwd::unpack(ptr);
-            // ptr: Ptr<Mut<'this, 'a>, Node<Weak<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>>
+            // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>>
             ptr.unpack_field_lt(FNext, |ptr| {
-                // ptr: Ptr<Mut<'this, 'a>, Node<Weak<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
+                // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
                 let (ptr, next) = ptr.read_field(FNext);
-                // ptr: Ptr<Mut<'this, 'a>, Node<Weak<'prev>, Weak<'next>>>
+                // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PointsTo<'next>>>
                 // next: Ptr<Mut<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
                 let ptr = ptr.erase_target_perms();
                 (ptr, next.map(pack_lt))
@@ -369,7 +370,7 @@ impl<'this> ListCursorInner<'this> {
     fn split<R>(
         ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>,
         f: impl FnOnce(
-            Ptr<Own<'this>, Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Weak<'_>)>>,
+            Ptr<Own<'this>, Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(PointsTo<'_>)>>,
             Option<NonEmptyListInner<'this>>,
         ) -> R,
     ) -> R {
@@ -395,7 +396,10 @@ impl<'this> ListCursorInner<'this> {
 
     /// Helper: reverse `split`.
     fn unsplit(
-        ptr: Ptr<Own<'this>, Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Weak<'_>)>>,
+        ptr: Ptr<
+            Own<'this>,
+            Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(PointsTo<'_>)>,
+        >,
         next: Option<NonEmptyListInner<'this>>,
     ) -> Ptr<Own<'this, NodeStateCursor<'this>>, Node> {
         let next = next.map(|next| next.into_ptr());
@@ -462,7 +466,7 @@ impl<'this> ListCursorInner<'this> {
             //     Own<'this>,
             //     Node<
             //         PackLt!(Own<'_, NodeStateBwd<'_, 'this>>),
-            //         Weak<'next>,
+            //         PointsTo<'next>,
             //     >,
             // >
             // next: Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>
@@ -473,7 +477,7 @@ impl<'this> ListCursorInner<'this> {
             let next = NodeStateFwd::unpack(next);
             // next: Ptr<Own<'next>,
             //    Node<
-            //      Weak<'this>,
+            //      PointsTo<'this>,
             //      PackLt!(Own<'_, NodeStateFwd<'_, 'next>>),
             //    >,
             // >

@@ -2,11 +2,13 @@ use super::ptr::*;
 use higher_kinded_types::ForLt as PackLt;
 use std::{marker::PhantomData, mem::MaybeUninit};
 
-/// A predicate applied to a pointer.
+/// A predicate meant for a pointer.
 /// `Perm` indicates what kind of accesses this pointer is allowed to do.
 /// `Pred` is a predicate on the pointed-to-value.
 /// `'this` is a lifetime brand that is used to identify pointers known to have the same address.
-pub struct PointsTo<'this, Perm, Pred = ()>(
+///
+/// A plain `PointsTo<'this>` has no access and only records the address this points to.
+pub struct PointsTo<'this, Perm = (), Pred = ()>(
     PhantomData<Perm>,
     PhantomData<Pred>,
     InvariantLifetime<'this>,
@@ -25,10 +27,6 @@ pub type Mut<'this, 'a, Pred = ()> = PointsTo<'this, PMut<'a>, Pred>;
 /// Read access
 pub struct PRead<'a>(PhantomData<&'a ()>);
 pub type Read<'this, 'a, Pred = ()> = PointsTo<'this, PRead<'a>, Pred>;
-
-/// No access.
-pub struct PNone;
-pub type Weak<'this, Pred = ()> = PointsTo<'this, PNone, Pred>;
 
 /// Full ownership to a location with uninitialized data. Can be written to to get a normal owned
 /// pointer.
@@ -101,7 +99,7 @@ pub unsafe trait HasAllocated<'this>: IsPointsTo<'this> {}
 unsafe impl<'this, T: HasRead<'this>> HasAllocated<'this> for T {}
 
 /// Describes the behavior of nested permissions. Namely, a `Ptr<Outer, Ptr<Self, T>>` can be
-/// turned into `(Ptr<Outer, Ptr<Weak, T>>, Ptr<Output, T>)`.
+/// turned into `(Ptr<Outer, Ptr<PointsTo, T>>, Ptr<Output, T>)`.
 pub unsafe trait AccessThrough<Outer> {
     type AccessThrough;
 }
@@ -140,8 +138,8 @@ mod access_through_impls {
     unsafe impl<'a, 'b> AccessThrough<PMut<'a>> for PRead<'b> {
         type AccessThrough = PRead<'b>;
     }
-    unsafe impl<'a> AccessThrough<PMut<'a>> for PNone {
-        type AccessThrough = PNone;
+    unsafe impl<'a> AccessThrough<PMut<'a>> for () {
+        type AccessThrough = ();
     }
     /// `Read` gives at most `Read` access.
     unsafe impl<'a, 'b> AccessThrough<PRead<'a>> for POwn {
@@ -153,8 +151,8 @@ mod access_through_impls {
     unsafe impl<'a, 'b> AccessThrough<PRead<'a>> for PRead<'b> {
         type AccessThrough = PRead<'b>;
     }
-    unsafe impl<'a> AccessThrough<PRead<'a>> for PNone {
-        type AccessThrough = PNone;
+    unsafe impl<'a> AccessThrough<PRead<'a>> for () {
+        type AccessThrough = ();
     }
 }
 
