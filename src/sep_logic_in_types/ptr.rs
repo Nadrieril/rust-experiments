@@ -40,15 +40,15 @@ impl<Perm, T> Ptr<Perm, T> {
     }
     pub unsafe fn cast_access<'this, NewPerm>(self) -> Ptr<NewPerm, T>
     where
-        Perm: IsPointsTo + HasWeak<'this>,
-        NewPerm: IsPointsTo<Pred = Perm::Pred> + HasWeak<'this>,
+        Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this, Pred = Perm::Pred>,
     {
         unsafe { self.cast_perm() }
     }
     pub unsafe fn cast_pred<'this, NewPerm>(self) -> Ptr<NewPerm, T>
     where
-        Perm: IsPointsTo + HasWeak<'this>,
-        NewPerm: IsPointsTo<Access = Perm::Access> + HasWeak<'this>,
+        Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this, Access = Perm::Access>,
     {
         unsafe { self.cast_perm() }
     }
@@ -78,14 +78,14 @@ impl<Perm, T> Ptr<Perm, T> {
 
     pub fn weak_ref_no_erase<'this>(&self) -> Ptr<Weak<'this, Perm::Pred>, T>
     where
-        Perm: HasWeak<'this>,
+        Perm: IsPointsTo<'this>,
     {
         unsafe { self.unsafe_copy().cast_access() }
     }
 
     pub fn weak_ref<'this>(&self) -> Ptr<Weak<'this, Perm::Pred>, T::Erased>
     where
-        Perm: HasWeak<'this>,
+        Perm: IsPointsTo<'this>,
         T: EraseNestedPerms,
     {
         self.weak_ref_no_erase().erase_target_perms()
@@ -101,7 +101,7 @@ impl<Perm, T> Ptr<Perm, T> {
     #[expect(unused)]
     pub fn erase_pred<'this>(self) -> Ptr<PointsTo<'this, Perm::Access>, T>
     where
-        Perm: HasWeak<'this>,
+        Perm: IsPointsTo<'this>,
     {
         unsafe { self.cast_pred() }
     }
@@ -116,7 +116,9 @@ impl<Perm, T> Ptr<Perm, T> {
     /// Give a name to the hidden lifetime in a pointer permissions.
     pub fn unpack_lt_ref<'a, R>(
         &'a self,
-        f: impl for<'this> FnOnce(Ptr<Read<'this, 'a, <Perm::Of<'this> as IsPointsTo>::Pred>, T>) -> R,
+        f: impl for<'this> FnOnce(
+            Ptr<Read<'this, 'a, <Perm::Of<'this> as IsPointsTo<'this>>::Pred>, T>,
+        ) -> R,
     ) -> R
     where
         Perm: PackLt,
@@ -127,7 +129,9 @@ impl<Perm, T> Ptr<Perm, T> {
     /// Give a name to the hidden lifetime in a pointer permissions.
     pub fn unpack_lt_mut<'a, R>(
         &'a mut self,
-        f: impl for<'this> FnOnce(Ptr<Mut<'this, 'a, <Perm::Of<'this> as IsPointsTo>::Pred>, T>) -> R,
+        f: impl for<'this> FnOnce(
+            Ptr<Mut<'this, 'a, <Perm::Of<'this> as IsPointsTo<'this>>::Pred>, T>,
+        ) -> R,
     ) -> R
     where
         Perm: PackLt,
@@ -141,7 +145,7 @@ impl<'this, P, T> Ptr<P, T> {
     /// Compare two pointers for equality. Because of the `HasAllocated` constraint, the target can
     /// never have been deallocated, so address equality implies that the pointers are
     /// interchangeable. The returned equality predicate is a witness of this interchangeability.
-    /// This would not be the case with `HasWeak`, as two pointers can have the same address but
+    /// This would not be the case with `IsPointsTo`, as two pointers can have the same address but
     /// different provenance.
     #[expect(unused)]
     pub fn eq<'other, Q, U>(&self, other: &Ptr<Q, U>) -> Option<EqPredicate<'this, 'other>>

@@ -76,32 +76,29 @@ impl<'this, T> Ptr<UninitOwned<'this>, T> {
     }
 }
 
-pub unsafe trait IsPointsTo: Sized {
+pub unsafe trait IsPointsTo<'this>: Sized {
     type Pred;
     type Access;
 }
-unsafe impl<'this, Access, Pred> IsPointsTo for PointsTo<'this, Access, Pred> {
+unsafe impl<'this, Access, Pred> IsPointsTo<'this> for PointsTo<'this, Access, Pred> {
     type Pred = Pred;
     type Access = Access;
 }
 
-pub unsafe trait HasOwn<'this>: HasWeak<'this> {}
+pub unsafe trait HasOwn<'this>: IsPointsTo<'this> {}
 unsafe impl<'this, Pred> HasOwn<'this> for Own<'this, Pred> {}
 
-pub unsafe trait HasMut<'this>: HasWeak<'this> {}
+pub unsafe trait HasMut<'this>: IsPointsTo<'this> {}
 unsafe impl<'this, T: HasOwn<'this>> HasMut<'this> for T {}
 unsafe impl<'this, Pred> HasMut<'this> for Mut<'this, '_, Pred> {}
 
-pub unsafe trait HasRead<'this>: HasWeak<'this> {}
+pub unsafe trait HasRead<'this>: IsPointsTo<'this> {}
 unsafe impl<'this, T: HasMut<'this>> HasRead<'this> for T {}
 unsafe impl<'this, Pred> HasRead<'this> for Read<'this, '_, Pred> {}
 
 /// The target is guaranteed to stay allocated as long as the permission exists.
-pub unsafe trait HasAllocated<'this>: IsPointsTo {}
+pub unsafe trait HasAllocated<'this>: IsPointsTo<'this> {}
 unsafe impl<'this, T: HasRead<'this>> HasAllocated<'this> for T {}
-
-pub unsafe trait HasWeak<'this>: IsPointsTo {}
-unsafe impl<'this, Access, Pred> HasWeak<'this> for PointsTo<'this, Access, Pred> {}
 
 /// Describes the behavior of nested permissions. Namely, a `Ptr<Outer, Ptr<Self, T>>` can be
 /// turned into `(Ptr<Outer, Ptr<Weak, T>>, Ptr<Output, T>)`.
@@ -110,13 +107,14 @@ pub unsafe trait AccessThrough<Outer> {
 }
 
 /// Helper trait that constructs the through-permission for a given pair.
-pub trait AccessThroughHelper<'inner, Outer>: IsPointsTo {
-    type AccessThrough: IsPointsTo<Pred = Self::Pred> + HasWeak<'inner>;
+pub trait AccessThroughHelper<'inner, 'outer, Outer>: IsPointsTo<'inner> {
+    type AccessThrough: IsPointsTo<'inner, Pred = Self::Pred>;
 }
-impl<'inner, InnerPerm, OuterPerm> AccessThroughHelper<'inner, OuterPerm> for InnerPerm
+impl<'inner, 'outer, InnerPerm, OuterPerm> AccessThroughHelper<'inner, 'outer, OuterPerm>
+    for InnerPerm
 where
-    OuterPerm: IsPointsTo,
-    InnerPerm: IsPointsTo + HasWeak<'inner>,
+    OuterPerm: IsPointsTo<'outer>,
+    InnerPerm: IsPointsTo<'inner>,
     InnerPerm::Access: AccessThrough<OuterPerm::Access>,
 {
     type AccessThrough = PointsTo<

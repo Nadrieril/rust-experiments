@@ -35,8 +35,8 @@ where
     )
     where
         PtrPerm: HasRead<'this>,
-        FieldPerm: HasWeak<'field>,
-        FieldPerm: AccessThroughHelper<'field, PtrPerm>,
+        FieldPerm: IsPointsTo<'field>,
+        FieldPerm: AccessThroughHelper<'field, 'this, PtrPerm>,
     {
         let ptr = self;
         // Safety: by the invariant of `AccessThrough`, it's ok to get that pointer out.
@@ -45,7 +45,7 @@ where
             .field_ref(tok)
             .as_ref()
             .map(|ptr| unsafe { ptr.unsafe_copy().cast_access() });
-        // Safety: we're downgrading a `HasWeak<'a>` to a `Weak<'a>`, which is fine even without
+        // Safety: we're downgrading a `IsPointsTo<'a>` to a `Weak<'a>`, which is fine even without
         // any particular permissions on `ptr`.
         let ptr = unsafe { ptr.cast_ty() };
         (ptr, field)
@@ -83,8 +83,8 @@ where
     )
     where
         PtrPerm: HasOwn<'this>,
-        FieldPerm: HasWeak<'field>,
-        NewPerm: HasWeak<'field>,
+        FieldPerm: IsPointsTo<'field>,
+        NewPerm: IsPointsTo<'field>,
     {
         let ptr = self;
         let old_field_val = ptr
