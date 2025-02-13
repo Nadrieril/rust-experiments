@@ -36,8 +36,7 @@ where
     where
         PtrPerm: HasRead<'this>,
         FieldPerm: HasWeak<'field>,
-        FieldPerm: AccessThrough<PtrPerm>,
-        FieldPerm::AccessThrough: HasWeak<'field>,
+        FieldPerm: AccessThroughHelper<'field, PtrPerm>,
     {
         let ptr = self;
         // Safety: by the invariant of `AccessThrough`, it's ok to get that pointer out.

@@ -105,56 +105,58 @@ unsafe impl<'this, Access, Pred> HasWeak<'this> for PointsTo<'this, Access, Pred
 
 /// Describes the behavior of nested permissions. Namely, a `Ptr<Outer, Ptr<Self, T>>` can be
 /// turned into `(Ptr<Outer, Ptr<Weak, T>>, Ptr<Output, T>)`.
-pub unsafe trait AccessThrough<Outer>: IsPointsTo {
-    type AccessThrough: IsPointsTo<Pred = Self::Pred>;
+pub unsafe trait AccessThrough<Outer> {
+    type AccessThrough;
 }
+
+/// Helper trait that constructs the through-permission for a given pair.
+pub trait AccessThroughHelper<'inner, Outer>: IsPointsTo {
+    type AccessThrough: IsPointsTo<Pred = Self::Pred> + HasWeak<'inner>;
+}
+impl<'inner, InnerPerm, OuterPerm> AccessThroughHelper<'inner, OuterPerm> for InnerPerm
+where
+    OuterPerm: IsPointsTo,
+    InnerPerm: IsPointsTo + HasWeak<'inner>,
+    InnerPerm::Access: AccessThrough<OuterPerm::Access>,
+{
+    type AccessThrough = PointsTo<
+        'inner,
+        <InnerPerm::Access as AccessThrough<OuterPerm::Access>>::AccessThrough,
+        InnerPerm::Pred,
+    >;
+}
+
 mod access_through_impls {
     use super::*;
     /// `Own` gives full access to inner permissions.
-    unsafe impl<'this, Pred, Perm: IsPointsTo> AccessThrough<Own<'this, Pred>> for Perm {
+    unsafe impl<Perm> AccessThrough<POwn> for Perm {
         type AccessThrough = Perm;
     }
     /// `Mut` gives at most `Mut` access.
-    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
-        AccessThrough<Mut<'outer, 'a, OuterPred>> for Own<'inner, InnerPred>
-    {
-        type AccessThrough = Mut<'inner, 'a, InnerPred>;
+    unsafe impl<'a, 'b> AccessThrough<PMut<'a>> for POwn {
+        type AccessThrough = PMut<'a>;
     }
-    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
-        AccessThrough<Mut<'outer, 'a, OuterPred>> for Mut<'inner, 'b, InnerPred>
-    {
-        type AccessThrough = Mut<'inner, 'a, InnerPred>;
+    unsafe impl<'a, 'b> AccessThrough<PMut<'a>> for PMut<'b> {
+        type AccessThrough = PMut<'a>;
     }
-    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
-        AccessThrough<Mut<'outer, 'a, OuterPred>> for Read<'inner, 'b, InnerPred>
-    {
-        type AccessThrough = Read<'inner, 'b, InnerPred>;
+    unsafe impl<'a, 'b> AccessThrough<PMut<'a>> for PRead<'b> {
+        type AccessThrough = PRead<'b>;
     }
-    unsafe impl<'outer, 'inner, 'a, OuterPred, InnerPred> AccessThrough<Mut<'outer, 'a, OuterPred>>
-        for Weak<'inner, InnerPred>
-    {
-        type AccessThrough = Weak<'inner, InnerPred>;
+    unsafe impl<'a> AccessThrough<PMut<'a>> for PNone {
+        type AccessThrough = PNone;
     }
     /// `Read` gives at most `Read` access.
-    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
-        AccessThrough<Read<'outer, 'a, OuterPred>> for Own<'inner, InnerPred>
-    {
-        type AccessThrough = Read<'inner, 'a, InnerPred>;
+    unsafe impl<'a, 'b> AccessThrough<PRead<'a>> for POwn {
+        type AccessThrough = PRead<'a>;
     }
-    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
-        AccessThrough<Read<'outer, 'a, OuterPred>> for Mut<'inner, 'b, InnerPred>
-    {
-        type AccessThrough = Read<'inner, 'b, InnerPred>;
+    unsafe impl<'a, 'b> AccessThrough<PRead<'a>> for PMut<'b> {
+        type AccessThrough = PRead<'b>;
     }
-    unsafe impl<'outer, 'inner, 'a, 'b, OuterPred, InnerPred>
-        AccessThrough<Read<'outer, 'a, OuterPred>> for Read<'inner, 'b, InnerPred>
-    {
-        type AccessThrough = Read<'inner, 'b, InnerPred>;
+    unsafe impl<'a, 'b> AccessThrough<PRead<'a>> for PRead<'b> {
+        type AccessThrough = PRead<'b>;
     }
-    unsafe impl<'outer, 'inner, 'a, OuterPred, InnerPred> AccessThrough<Read<'outer, 'a, OuterPred>>
-        for Weak<'inner, InnerPred>
-    {
-        type AccessThrough = Weak<'inner, InnerPred>;
+    unsafe impl<'a> AccessThrough<PRead<'a>> for PNone {
+        type AccessThrough = PNone;
     }
 }
 
