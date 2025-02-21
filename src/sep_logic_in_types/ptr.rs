@@ -142,6 +142,17 @@ impl<Perm, T> Ptr<Perm, T> {
     }
 }
 
+impl<Perm, T> Ptr<Perm, ExistsLt<T>>
+where
+    T: PackLt,
+{
+    /// Give a name to the hidden lifetime in a pointer target.
+    pub fn unpack_target_lt<R>(self, f: impl for<'this> FnOnce(Ptr<Perm, T::Of<'this>>) -> R) -> R {
+        // Safety: `ExistsLt` is `repr(transparent)`
+        f(unsafe { self.cast_ty() })
+    }
+}
+
 impl<'this, P, T> Ptr<P, T> {
     /// Compare two pointers for equality. Because of the `HasAllocated` constraint, the target can
     /// never have been deallocated, so address equality implies that the pointers are
@@ -162,9 +173,31 @@ impl<'this, P, T> Ptr<P, T> {
     }
 }
 
+/// Give a name to the hidden lifetime in a pointer permissions.
+pub fn unpack_opt_perm_lt<Perm, T, R>(
+    ptr: Option<Ptr<Perm, T>>,
+    f: impl for<'this> FnOnce(Option<Ptr<Perm::Of<'this>, T>>) -> R,
+) -> R
+where
+    Perm: PackLt,
+{
+    match ptr {
+        None => f(None),
+        Some(ptr) => ptr.unpack_lt(|ptr| f(Some(ptr))),
+    }
+}
+
 /// Hide the lifetime in a pointer permissions.
-pub fn pack_lt<'this, Perm: PackLt, T>(ptr: Ptr<Perm::Of<'this>, T>) -> Ptr<Perm, T> {
+pub fn pack_perm_lt<'this, Perm: PackLt, T>(ptr: Ptr<Perm::Of<'this>, T>) -> Ptr<Perm, T> {
     unsafe { ptr.cast_perm() }
+}
+
+/// Hide the lifetime in a pointer target.
+pub fn pack_target_lt<'this, Perm, T: PackLt>(
+    ptr: Ptr<Perm, T::Of<'this>>,
+) -> Ptr<Perm, ExistsLt<T>> {
+    // Safety: `ExistsLt` is `repr(transparent)`
+    unsafe { ptr.cast_ty() }
 }
 
 impl<Perm, T> Receiver for Ptr<Perm, T> {

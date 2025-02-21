@@ -18,7 +18,12 @@ pub struct ExistsLt<T: PackLt> {
 
 #[macro_export]
 macro_rules! ExistsLt {
-    ($($tt:tt)*) => { ExistsLt<higher_kinded_types::ForLt!($($tt)*)> }
+    (<$first_lt:lifetime, $($lts:lifetime)*> = $($tt:tt)*) => {
+        ExistsLt!(<$first_lt> = ExistsLt!(<$($lts)*> = $($tt)*))
+    };
+    ($($tt:tt)*) => {
+        ExistsLt<higher_kinded_types::ForLt!($($tt)*)>
+    };
 }
 
 impl<T: PackLt> ExistsLt<T> {

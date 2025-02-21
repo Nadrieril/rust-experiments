@@ -62,7 +62,7 @@ impl<'this, Pred: PointeePred, T> Ptr<Own<'this, Pred>, T> {
 impl<T> Ptr<PackLt!(UninitOwned<'_>), T> {
     #[expect(unused)]
     pub fn new_uninit() -> Self {
-        Ptr::new_uninit_cyclic::<PackLt!(T), _>(|ptr| pack_lt(ptr))
+        Ptr::new_uninit_cyclic::<PackLt!(T), _>(|ptr| pack_perm_lt(ptr))
     }
 }
 

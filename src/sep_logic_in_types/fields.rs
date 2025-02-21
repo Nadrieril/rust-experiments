@@ -11,6 +11,14 @@ pub unsafe trait EraseNestedPerms: Sized {
     }
 }
 
+unsafe impl<T> EraseNestedPerms for ExistsLt<T>
+where
+    T: PackLt,
+    for<'a> T::Of<'a>: EraseNestedPerms,
+{
+    type Erased = <T::Of<'static> as EraseNestedPerms>::Erased;
+}
+
 /// A type that has an `Option<Ptr<Perm, FieldTy>>` field where `Perm` is a generic argument.
 /// This trait permits manipulating the value and permissions of this field.
 /// The `F` is the index of the field, to support multiple fields per type.
@@ -97,31 +105,6 @@ where
         // already equal.
         let ptr = unsafe { ptr.cast_ty() };
         (ptr, old_field_val)
-    }
-
-    /// Give a name to the hidden lifetime in the permission of the field.
-    fn unpack_field_lt<'this, PtrPerm, R>(
-        self: Ptr<PtrPerm, Self>,
-        _tok: FieldTok,
-        f: impl for<'field> FnOnce(Ptr<PtrPerm, Self::ChangePerm<FieldPerm::Of<'field>>>) -> R,
-    ) -> R
-    where
-        FieldPerm: PackLt,
-    {
-        // Safety: the higher-ranked type + invariant lifetimes hopefully ensures the identifier is
-        // fresh and cannot be mixed with other similar identifiers. The behavior of associated
-        // types in this context is not entirely clear to me though.
-        f(unsafe { self.cast_ty() })
-    }
-    /// Hide the name of the lifetime in the permission of the field.
-    fn pack_field_lt<'this, 'field, PtrPerm>(
-        ptr: Ptr<PtrPerm, Self::ChangePerm<FieldPerm::Of<'field>>>,
-        _tok: FieldTok,
-    ) -> Ptr<PtrPerm, Self>
-    where
-        FieldPerm: PackLt,
-    {
-        unsafe { ptr.cast_ty() }
     }
 }
 

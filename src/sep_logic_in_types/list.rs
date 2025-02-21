@@ -46,7 +46,9 @@ unsafe impl<Prev, Next> HasPermField<FNext, Next> for Node<Prev, Next> {
 struct NodeStateFwd<'this, 'prev>(InvariantLifetime<'this>, InvariantLifetime<'prev>);
 impl PointeePred for NodeStateFwd<'_, '_> {}
 impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
-    type Unpacked = Node<PointsTo<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
+    type Unpacked = ExistsLt!(<'next> =
+        Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>
+    );
 }
 
 /// Like `NodeStateFwd` except flipping the fields of `Node` (the "forward" pointer is in the
@@ -54,7 +56,9 @@ impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
 struct NodeStateBwd<'this, 'next>(InvariantLifetime<'this>, InvariantLifetime<'next>);
 impl PointeePred for NodeStateBwd<'_, '_> {}
 impl<'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'this, 'next> {
-    type Unpacked = Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PointsTo<'next>>;
+    type Unpacked = ExistsLt!(<'prev> =
+        Node<Own<'prev, NodeStateBwd<'prev, 'this>>, PointsTo<'next>>
+    );
 }
 
 /// A Node whose `prev` and `next` fields are each a forward-owned linked list with back-edges.
@@ -62,8 +66,9 @@ impl<'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'this, 'next> {
 struct NodeStateCursor<'this>(InvariantLifetime<'this>);
 impl PointeePred for NodeStateCursor<'_> {}
 impl<'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
-    type Unpacked =
-        Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
+    type Unpacked = ExistsLt!(<'prev, 'next> =
+        Node<Own<'prev, NodeStateBwd<'prev, 'this>>, Own<'next, NodeStateFwd<'next, 'this>>>
+    );
 }
 
 use list_helpers::NonEmptyListInner;
@@ -97,7 +102,7 @@ mod list_helpers {
         pub fn pop_front(self) -> (Option<Self>, Option<usize>) {
             self.into_ptr().unpack_lt(|ptr| {
                 let ptr = NodeStateFwd::unpack(ptr);
-                ptr.unpack_field_lt(FNext, |ptr| {
+                ptr.unpack_target_lt(|ptr| {
                     // ptr: Ptr<
                     //     Own<'this>,
                     //     Node<
@@ -111,10 +116,13 @@ mod list_helpers {
                     let list = next.map(|next| {
                         // next: Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>
                         let next = NodeStateFwd::unpack(next);
-                        let (next, _) = next.write_field(FPrev, prev);
-                        let next = NodeStateFwd::pack(next);
-                        // next: Ptr<Own<'next, NodeStateFwd<'next, 'prev>>, Node>
-                        Self(pack_lt(next))
+                        next.unpack_target_lt(|next| {
+                            let (next, _) = next.write_field(FPrev, prev);
+                            let next = pack_target_lt(next);
+                            let next = NodeStateFwd::pack(next);
+                            // next: Ptr<Own<'next, NodeStateFwd<'next, 'prev>>, Node>
+                            Self(pack_perm_lt(next))
+                        })
                     });
                     (list, Some(val))
                 })
@@ -138,20 +146,35 @@ mod list_helpers {
         type ToAlloc<'prev> =
             PackLt!(<NodeStateFwd<'_, 'prev> as PackedPredicate<'_, Node>>::Unpacked);
         Ptr::new_uninit_cyclic::<ToAlloc<'_>, _>(|new| {
-            // Update `next.prev` to point to `new`.
-            let (prev, next) = match next_or_prev {
+            // Create a new node.
+            let node = match next_or_prev {
                 Ok(next) => {
                     let next = NodeStateFwd::unpack(next);
-                    let (next, prev) = next.write_field(FPrev, Some(new.weak_ref()));
-                    let next = NodeStateFwd::pack(next);
-                    (prev, Some(pack_lt(next)))
+                    next.unpack_target_lt(|next| {
+                        // Update `next.prev` to point to `new`.
+                        let (next, prev) = next.write_field(FPrev, Some(new.weak_ref()));
+                        let next = pack_target_lt(next);
+                        let next = NodeStateFwd::pack(next);
+                        // `'next` only exists in the current scope so we must pack the existential
+                        // here.
+                        ExistsLt::pack_lt(Node {
+                            val,
+                            prev,
+                            next: Some(next),
+                        })
+                    })
                 }
-                Err(prev) => (prev, None),
+                Err(prev) => ExistsLt::pack_lt(Node {
+                    val,
+                    prev,
+                    next: None,
+                }),
             };
-            // Allocate a new node whose `next` field is `next`.
-            let new = NodeStateFwd::pack(new.write(Node { val, prev, next }));
+            // Write the new node to the newly-allocated place.
+            let new = new.write(node);
+            let new = NodeStateFwd::pack(new);
             // Pack the `'new` lifetime
-            pack_lt(new)
+            pack_perm_lt(new)
         })
     }
 }
@@ -225,9 +248,13 @@ impl List {
         let inner = self.0.take().map(|ptr| {
             ptr.into_ptr().unpack_lt(|ptr| {
                 let ptr = NodeStateFwd::unpack(ptr);
-                let (ptr, _) = ptr.write_field(FPrev, None);
-                let ptr = NodeStateCursor::pack(ptr);
-                ListCursorInner { ptr }.pack_lt()
+                ptr.unpack_target_lt(|ptr| {
+                    let (ptr, _) = ptr.write_field(FPrev, None);
+                    let ptr = pack_target_lt(ptr);
+                    let ptr = pack_target_lt(ptr);
+                    let ptr = NodeStateCursor::pack(ptr);
+                    ListCursorInner { ptr }.pack_lt()
+                })
             })
         });
         ListCursor {
@@ -237,18 +264,16 @@ impl List {
     }
 
     pub fn iter(&self) -> ListIter<'_> {
-        ListIter(
-            self.0
-                .as_ref()
-                .map(|ptr| ptr.as_ptr().unpack_lt_ref(|ptr| pack_lt(pack_lt(ptr)))),
-        )
+        ListIter(self.0.as_ref().map(|ptr| {
+            ptr.as_ptr()
+                .unpack_lt_ref(|ptr| pack_perm_lt(pack_perm_lt(ptr)))
+        }))
     }
     pub fn iter_mut(&mut self) -> ListIterMut<'_> {
-        ListIterMut(
-            self.0
-                .as_mut()
-                .map(|ptr| ptr.as_ptr_mut().unpack_lt_mut(|ptr| pack_lt(pack_lt(ptr)))),
-        )
+        ListIterMut(self.0.as_mut().map(|ptr| {
+            ptr.as_ptr_mut()
+                .unpack_lt_mut(|ptr| pack_perm_lt(pack_perm_lt(ptr)))
+        }))
     }
 }
 
@@ -275,18 +300,23 @@ impl<'a> Iterator for ListIter<'a> {
             ptr: Ptr<Read<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>,
         ) -> Option<Ptr<PackLt!(Read<'_, 'a, NodeStateFwd<'_, 'this>>), Node>> {
             let ptr = NodeStateFwd::unpack(ptr);
-            // ptr: Ptr<Read<'this, 'a>, Node<PointsTo<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>>
-            ptr.unpack_field_lt(FNext, |ptr| {
+            // ptr: Ptr<
+            //    Read<'this, 'a>,
+            //    ExistsLt!('next,
+            //        Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>
+            //    )
+            //  >
+            ptr.unpack_target_lt(|ptr| {
                 // ptr: Ptr<Read<'this, 'a>, Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
                 let next = ptr.read_field(FNext).1?;
                 // next: Ptr<Read<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
-                Some(pack_lt(next))
+                Some(pack_perm_lt(next))
             })
         }
         self.0.take()?.unpack_lt(|ptr| {
             ptr.unpack_lt(|ptr| {
                 let val = &ptr.deref_exact().val;
-                self.0 = advance(ptr).map(pack_lt);
+                self.0 = advance(ptr).map(pack_perm_lt);
                 Some(val)
             })
         })
@@ -309,20 +339,19 @@ impl<'a> Iterator for ListIterMut<'a> {
             Option<Ptr<PackLt!(Mut<'_, 'a, NodeStateFwd<'_, 'this>>), Node>>,
         ) {
             let ptr = NodeStateFwd::unpack(ptr);
-            // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>>
-            ptr.unpack_field_lt(FNext, |ptr| {
+            ptr.unpack_target_lt(|ptr| {
                 // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
                 let (ptr, next) = ptr.read_field(FNext);
                 // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PointsTo<'next>>>
                 // next: Ptr<Mut<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
                 let ptr = ptr.drop_target_perms();
-                (ptr, next.map(pack_lt))
+                (ptr, next.map(pack_perm_lt))
             })
         }
         self.0.take()?.unpack_lt(|ptr| {
             ptr.unpack_lt(|ptr| {
                 let (ptr, next) = advance(ptr);
-                self.0 = next.map(pack_lt);
+                self.0 = next.map(pack_perm_lt);
                 Some(&mut ptr.into_deref_mut().val)
             })
         })
@@ -350,8 +379,8 @@ impl<'this> ListCursorInner<'this> {
     /// Helper: split off the forward list that includes the current node and the rest.
     fn split<R>(
         ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>,
-        f: impl FnOnce(
-            Ptr<Own<'this>, Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(PointsTo<'_>)>>,
+        f: impl for<'prev, 'next> FnOnce(
+            Ptr<Own<'this>, Node<Own<'prev, NodeStateBwd<'prev, 'this>>, PointsTo<'next>>>,
             Option<NonEmptyListInner<'this>>,
         ) -> R,
     ) -> R {
@@ -359,35 +388,38 @@ impl<'this> ListCursorInner<'this> {
         // Expand the permissions to the fields of `Node`
         let ptr = NodeStateCursor::unpack(ptr);
         // Expand the lifetime
-        ptr.unpack_field_lt(FNext, |ptr| {
-            // ptr: Ptr<
-            //     Own<'this>,
-            //     Node<
-            //         PackLt!(Own<'_, NodeStateBwd<'_, 'this>>),
-            //         Own<'next, NodeStateFwd<'next, 'this>>,
-            //     >,
-            // >
-            // Extract the ownership in `next` (and get a copy of that pointer).
-            let (ptr, next) = ptr.read_field(FNext);
-            let ptr = Node::pack_field_lt(ptr, FNext);
-            let next = next.map(|next| NonEmptyListInner::from_ptr(pack_lt(next)));
-            f(ptr, next)
+        ptr.unpack_target_lt(|ptr| {
+            ptr.unpack_target_lt(|ptr| {
+                // ptr: Ptr<
+                //     Own<'this>,
+                //     Node<
+                //         Own<'prev, NodeStateBwd<'prev, 'this>>,
+                //         Own<'next, NodeStateFwd<'next, 'this>>,
+                //     >,
+                // >
+                // Extract the ownership in `next` (and get a copy of that pointer).
+                let (ptr, next) = ptr.read_field(FNext);
+                // let ptr = Node::pack_field_lt(ptr, FNext);
+                let next = next.map(|next| NonEmptyListInner::from_ptr(pack_perm_lt(next)));
+                f(ptr, next)
+            })
         })
     }
 
     /// Helper: reverse `split`.
-    fn unsplit(
-        ptr: Ptr<
-            Own<'this>,
-            Node<PackLt!(Own<'_, NodeStateBwd<'_, 'this>>), PackLt!(PointsTo<'_>)>,
-        >,
+    fn unsplit<'prev, 'next>(
+        ptr: Ptr<Own<'this>, Node<Own<'prev, NodeStateBwd<'prev, 'this>>, PointsTo<'next>>>,
         next: Option<NonEmptyListInner<'this>>,
     ) -> Ptr<Own<'this, NodeStateCursor<'this>>, Node> {
         let next = next.map(|next| next.into_ptr());
-        // Update `ptr.next`.
-        let (ptr, _) = ptr.write_field(FNext, next);
-        // Unexpand permissions
-        NodeStateCursor::pack(ptr)
+        unpack_opt_perm_lt(next, |next| {
+            // Update `ptr.next`.
+            let (ptr, _) = ptr.write_field(FNext, next);
+            // Unexpand permissions
+            let ptr = pack_target_lt(ptr);
+            let ptr = pack_target_lt(ptr);
+            NodeStateCursor::pack(ptr)
+        })
     }
 
     pub fn insert_after(self, val: usize) -> Self {
@@ -423,99 +455,99 @@ impl<'this> ListCursorInner<'this> {
         // ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>
         // Expand the permissions to the fields of `Node`
         let ptr = NodeStateCursor::unpack(ptr);
-        // ptr: Ptr<
+        // ptr: ExistsLt!(<'prev, 'next>, Ptr<
         //     Own<'this>,
         //     Node<
-        //         PackLt!(Own<'_, NodeStateBwd<'_, 'this>>),
-        //         PackLt!(Own<'_, NodeStateFwd<'_, 'this>>),
+        //         Own<'prev, NodeStateBwd<'prev, 'this>>,
+        //         Own<'next, NodeStateFwd<'next, 'this>>,
         //     >,
-        // >
-        // Expand the lifetime
-        ptr.unpack_field_lt(FNext, |ptr| {
-            // ptr: Ptr<
-            //     Own<'this>,
-            //     Node<
-            //         PackLt!(Own<'_, NodeStateBwd<'_, 'this>>),
-            //         Own<'next, NodeStateFwd<'next, 'this>>,
-            //     >,
-            // >
-            // Extract the ownership in `next` (and get a copy of that pointer).
-            let (ptr, next) = ptr.read_field(FNext);
-            // `unwrap` is ok because we checked earlier.
-            let next = next.unwrap();
-            // ptr: Ptr<
-            //     Own<'this>,
-            //     Node<
-            //         PackLt!(Own<'_, NodeStateBwd<'_, 'this>>),
-            //         PointsTo<'next>,
-            //     >,
-            // >
-            // next: Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>
-            // Unexpand the permissions
-            let ptr = NodeStateBwd::pack(ptr);
-            // ptr: Ptr<Own<'this, NodeStateBwd<'this, 'next>>, Node>
-            // Expand the permissions
-            let next = NodeStateFwd::unpack(next);
-            // next: Ptr<Own<'next>,
-            //    Node<
-            //      PointsTo<'this>,
-            //      PackLt!(Own<'_, NodeStateFwd<'_, 'next>>),
-            //    >,
-            // >
-            // Insert ownership
-            let (next, _) = next.write_field_permission(FPrev, ptr);
-            // next: Ptr<Own<'next>,
-            //    Node<
-            //      Own<'this, NodeStateBwd<'this, 'next>>,
-            //      PackLt!(Own<'_, NodeStateFwd<'_, 'next>>),
-            //    >>
-            // >
-            // Pack lifetime
-            let next = Node::pack_field_lt(next, FPrev);
-            // TODO: here we lose info, lens should retain it.
-            // but! after this, I could pass the bwd function a pointer with some other address!
-            // can this break safety?
-            // seems fine, the real problem would be if I write to prev. then first ptr may no
-            // longer correspond. feels like I should track the brand of the first ptr. but if I
-            // can write with extra brand, why couldn't I write without? can I make an API that
-            // ensures things are appropriately branded? probably not.
-            // for safety, going prev* should reach the first pointer. writing to prev would
-            // therefore break safety.
-            // feels like the wand should be in the prev permissions... but prev won't contain the
-            // actual pointer, so I should have a `PointsTo<'first>` in the cursor, and a wand<_,
-            // Own<'first>> in prev. madness.
-            // that would be a permission attached to a different pointer than it applies to.
-            // prev: Ptr<'prev, (Own<'prev, NodeStateBwd<'first>>, Wand<Own<'prev, NodeStateBwd<'first>>, Own<'first>>), Node>
-            // that could be a lie: such a wand should contain all the missing permissions; if I
-            // write to prev.prev then apply the wand I would duplicate permissions.
-            // this should be a linear alternation probably.
-            // when going forward, take the wand out to pass it to the new prev pointer.
-            // TODO: do we need to put the `'first` constraint somewhere? is the wand enough?
-            // problem: the first node doesn't have a prev, hence can't take the ownership out,
-            // hence we must know that in that case the cursor pointer is `'first`.
-            // could have an `EqPredicate<'this, 'first>` in the `None` somehow?
-            // impl<'first, 'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'first, 'this, 'next> {
-            //     type Unpacked = Node<PackLt!(Own<'_, NodeStateBwd<'first, '_, 'this>>), PointsTo<'next>>;
-            // }
-            // impl<'first, 'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
-            //     type Unpacked =
-            //         Node<PackLt!(Lens<Own<'_, NodeStateBwd<'first, '_, 'this>>, Own<'first>>), PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
-            // }
-            // doing all this so we can write to next freely. problem: won't work if we also want a
-            // `'last` pointer. if we have a last pointer and trying to remove last node, then we
-            // must update last pointer.seems ok as long as we rebuild a new cursor with correct
-            // invariants. again, only constraint here is safety.
-            //
-            // next: Ptr<Own<'next>,
-            //    Node<
-            //      PackLt!(Own<'_, NodeStateBwd<'_, 'next>>),
-            //      PackLt!(Own<'_, NodeStateFwd<'_, 'next>>),
-            //    >>
-            // >
-            // Unexpand permissions
-            let next = NodeStateCursor::pack(next);
-            // next: Ptr<Own<'next, NodeStateCursor<'next>>, Node>
-            Ok(ExistsLt::pack_lt(ListCursorInner { ptr: next }))
+        // >)
+        // Expand the lifetimes
+        ptr.unpack_target_lt(|ptr| {
+            ptr.unpack_target_lt(|ptr| {
+                // ptr: Ptr<
+                //     Own<'this>,
+                //     Node<
+                //         Own<'prev, NodeStateBwd<'prev, 'this>>,
+                //         Own<'next, NodeStateFwd<'next, 'this>>,
+                //     >,
+                // >
+                // Extract the ownership in `next` (and get a copy of that pointer).
+                let (ptr, next) = ptr.read_field(FNext);
+                // `unwrap` is ok because we checked earlier.
+                let next = next.unwrap();
+                // ptr: Ptr<
+                //     Own<'this>,
+                //     Node<
+                //         Own<'prev, NodeStateBwd<'prev, 'this>>,
+                //         PointsTo<'next>,
+                //     >,
+                // >
+                // next: Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>
+                // Unexpand the permissions
+                let ptr = pack_target_lt(ptr);
+                let ptr = NodeStateBwd::pack(ptr);
+                // ptr: Ptr<Own<'this, NodeStateBwd<'this, 'next>>, Node>
+                // Expand the permissions
+                let next = NodeStateFwd::unpack(next);
+                next.unpack_target_lt(|next| {
+                    // next: Ptr<Own<'next>,
+                    //    Node<
+                    //      PointsTo<'this>,
+                    //      Own<'nextnext, NodeStateFwd<'nextnext, 'next>>,
+                    //    >,
+                    // >
+                    // Insert ownership
+                    let (next, _) = next.write_field_permission(FPrev, ptr);
+                    // next: Ptr<Own<'next>,
+                    //    Node<
+                    //      Own<'this, NodeStateBwd<'this, 'next>>,
+                    //      Own<'nextnext, NodeStateFwd<'nextnext, 'next>>,
+                    //    >>
+                    // >
+                    // Pack lifetimes
+                    let next = pack_target_lt(next);
+                    let next = pack_target_lt(next);
+                    // TODO: here we lose info, lens should retain it.
+                    // but! after this, I could pass the bwd function a pointer with some other address!
+                    // can this break safety?
+                    // seems fine, the real problem would be if I write to prev. then first ptr may no
+                    // longer correspond. feels like I should track the brand of the first ptr. but if I
+                    // can write with extra brand, why couldn't I write without? can I make an API that
+                    // ensures things are appropriately branded? probably not.
+                    // for safety, going prev* should reach the first pointer. writing to prev would
+                    // therefore break safety.
+                    // feels like the wand should be in the prev permissions... but prev won't contain the
+                    // actual pointer, so I should have a `PointsTo<'first>` in the cursor, and a wand<_,
+                    // Own<'first>> in prev. madness.
+                    // that would be a permission attached to a different pointer than it applies to.
+                    // prev: Ptr<'prev, (Own<'prev, NodeStateBwd<'first>>, Wand<Own<'prev, NodeStateBwd<'first>>, Own<'first>>), Node>
+                    // that could be a lie: such a wand should contain all the missing permissions; if I
+                    // write to prev.prev then apply the wand I would duplicate permissions.
+                    // this should be a linear alternation probably.
+                    // when going forward, take the wand out to pass it to the new prev pointer.
+                    // TODO: do we need to put the `'first` constraint somewhere? is the wand enough?
+                    // problem: the first node doesn't have a prev, hence can't take the ownership out,
+                    // hence we must know that in that case the cursor pointer is `'first`.
+                    // could have an `EqPredicate<'this, 'first>` in the `None` somehow?
+                    // impl<'first, 'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'first, 'this, 'next> {
+                    //     type Unpacked = Node<PackLt!(Own<'_, NodeStateBwd<'first, '_, 'this>>), PointsTo<'next>>;
+                    // }
+                    // impl<'first, 'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
+                    //     type Unpacked =
+                    //         Node<PackLt!(Lens<Own<'_, NodeStateBwd<'first, '_, 'this>>, Own<'first>>), PackLt!(Own<'_, NodeStateFwd<'_, 'this>>)>;
+                    // }
+                    // doing all this so we can write to next freely. problem: won't work if we also want a
+                    // `'last` pointer. if we have a last pointer and trying to remove last node, then we
+                    // must update last pointer.seems ok as long as we rebuild a new cursor with correct
+                    // invariants. again, only constraint here is safety.
+                    //
+                    // Unexpand permissions
+                    let next = NodeStateCursor::pack(next);
+                    // next: Ptr<Own<'next, NodeStateCursor<'next>>, Node>
+                    Ok(ExistsLt::pack_lt(ListCursorInner { ptr: next }))
+                })
+            })
         })
     }
     /// Move the cursor backwards. Returns `Err(self)` if the cursor could not be moved.
@@ -527,23 +559,29 @@ impl<'this> ListCursorInner<'this> {
         // Expand the permissions to the fields of `Node`
         let ptr = NodeStateCursor::unpack(ptr);
         // Expand the lifetime
-        ptr.unpack_field_lt(FPrev, |ptr| {
-            // Extract the ownership in `prev` (and get a copy of that pointer).
-            let (ptr, prev) = ptr.read_field(FPrev);
-            // `unwrap` is ok because we checked earlier.
-            let prev = prev.unwrap();
-            // Unexpand the permissions
-            let ptr = NodeStateFwd::pack(ptr);
-            // Expand the permissions
-            let prev = NodeStateBwd::unpack(prev);
-            // Insert ownership
-            let (ptr, _) = prev.write_field_permission(FNext, ptr);
-            // Pack lifetime
-            let ptr = Node::pack_field_lt(ptr, FNext);
-            // Unexpand permissions
-            let ptr = NodeStateCursor::pack(ptr);
-            // Pack lifetime
-            Ok(ExistsLt::pack_lt(ListCursorInner { ptr }))
+        ptr.unpack_target_lt(|ptr| {
+            ptr.unpack_target_lt(|ptr| {
+                // Extract the ownership in `prev` (and get a copy of that pointer).
+                let (ptr, prev) = ptr.read_field(FPrev);
+                // `unwrap` is ok because we checked earlier.
+                let prev = prev.unwrap();
+                // Unexpand the permissions
+                let ptr = pack_target_lt(ptr);
+                let ptr = NodeStateFwd::pack(ptr);
+                // Expand the permissions
+                let prev = NodeStateBwd::unpack(prev);
+                prev.unpack_target_lt(|prev| {
+                    // Insert ownership
+                    let (ptr, _) = prev.write_field_permission(FNext, ptr);
+                    // Pack lifetime
+                    let ptr = pack_target_lt(ptr);
+                    let ptr = pack_target_lt(ptr);
+                    // Unexpand permissions
+                    let ptr = NodeStateCursor::pack(ptr);
+                    // Pack lifetime
+                    Ok(ExistsLt::pack_lt(ListCursorInner { ptr }))
+                })
+            })
         })
     }
 
@@ -551,10 +589,15 @@ impl<'this> ListCursorInner<'this> {
     /// element; any elements before will be lost.
     pub fn into_list(self) -> List {
         let ptr = NodeStateCursor::unpack(self.ptr);
-        let (ptr, _) = ptr.write_field(FPrev, None);
-        let ptr = NodeStateFwd::pack(ptr);
-        let ptr = pack_lt(ptr);
-        List(Some(NonEmptyListInner::from_ptr(ptr)))
+        ptr.unpack_target_lt(|ptr| {
+            ptr.unpack_target_lt(|ptr| {
+                let (ptr, _) = ptr.write_field(FPrev, None);
+                let ptr = pack_target_lt(ptr);
+                let ptr = NodeStateFwd::pack(ptr);
+                let ptr = pack_perm_lt(ptr);
+                List(Some(NonEmptyListInner::from_ptr(ptr)))
+            })
+        })
     }
 }
 
