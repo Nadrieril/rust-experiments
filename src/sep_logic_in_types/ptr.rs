@@ -10,7 +10,7 @@ pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
 /// `Perm` will generally be either `PointsTo<...>` or `ExistsLt!(PointsTo<...>)`.
 pub struct Ptr<Perm, T> {
     ptr: NonNull<T>,
-    perm: PhantomData<Perm>,
+    perm: Perm,
     /// We're invariant in `T` to avoid surprises. We can only soundly be covariant in `T` for some
     /// values of `Perm`, which seems hard to express, if at all possible.
     phantom: PhantomData<*mut T>,
@@ -25,28 +25,57 @@ pub unsafe trait PtrPerm: Sized {
 }
 
 impl<Perm: PtrPerm, T> Ptr<Perm, T> {
-    pub unsafe fn from_non_null(ptr: NonNull<T>) -> Self {
+    pub fn new(ptr: NonNull<T>, perm: Perm) -> Self {
         Self {
             ptr,
-            perm: PhantomData,
+            perm,
             phantom: PhantomData,
         }
     }
+
+    /// Split the pointer into a permissionless pointer and a permission.
+    pub fn split<'this>(self) -> (Ptr<PointsTo<'this>, T>, Perm)
+    where
+        Perm: IsPointsTo<'this>,
+    {
+        let ptr = unsafe { self.cast_perm() };
+        (ptr, unsafe { Perm::new() })
+    }
+
+    /// Sets the permission of a pointer if the brand match.
+    pub fn set_perm<'this, NewPerm>(self, perm: NewPerm) -> Ptr<NewPerm, T>
+    where
+        Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this>,
+    {
+        Ptr {
+            ptr: self.ptr,
+            perm,
+            phantom: PhantomData,
+        }
+    }
+
     pub fn as_non_null(&self) -> NonNull<T> {
         self.ptr
     }
+    pub fn perm(&self) -> &Perm {
+        &self.perm
+    }
+    pub fn perm_mut(&mut self) -> &mut Perm {
+        &mut self.perm
+    }
 
-    pub unsafe fn cast_perm<NewPerm>(self) -> Ptr<NewPerm, T> {
+    pub unsafe fn cast_perm<NewPerm: PtrPerm>(self) -> Ptr<NewPerm, T> {
         Ptr {
             ptr: self.ptr,
-            perm: PhantomData,
+            perm: unsafe { NewPerm::new() },
             phantom: PhantomData,
         }
     }
     pub unsafe fn cast_ty<U>(self) -> Ptr<Perm, U> {
         Ptr {
             ptr: self.ptr.cast(),
-            perm: PhantomData,
+            perm: self.perm,
             phantom: PhantomData,
         }
     }
@@ -66,27 +95,7 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     }
 
     pub unsafe fn unsafe_copy(&self) -> Self {
-        Ptr {
-            ptr: self.ptr,
-            perm: PhantomData,
-            phantom: PhantomData,
-        }
-    }
-
-    #[expect(unused)]
-    pub fn copy_read<'this>(&self) -> Ptr<Read<'this, '_, Perm::Pred>, T>
-    where
-        Perm: HasRead<'this>,
-    {
-        unsafe { self.unsafe_copy().cast_access() }
-    }
-
-    #[expect(unused)]
-    pub fn copy_mut<'this>(&mut self) -> Ptr<Mut<'this, '_, Perm::Pred>, T>
-    where
-        Perm: HasMut<'this>,
-    {
-        unsafe { self.unsafe_copy().cast_access() }
+        Ptr::new(self.ptr, unsafe { Perm::new() })
     }
 
     /// Copy the pointer. The copied pointer has no permissions.
@@ -94,7 +103,22 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     where
         Perm: IsPointsTo<'this>,
     {
-        unsafe { self.unsafe_copy().cast_perm() }
+        Ptr::new(self.as_non_null(), self.perm.as_points_to())
+    }
+    #[expect(unused)]
+    pub fn copy_read<'this>(&self) -> Ptr<Read<'this, '_, Perm::Pred>, T>
+    where
+        Perm: HasRead<'this>,
+    {
+        self.copy().set_perm(self.perm().as_read())
+    }
+
+    #[expect(unused)]
+    pub fn copy_mut<'this>(&mut self) -> Ptr<Mut<'this, '_, Perm::Pred>, T>
+    where
+        Perm: HasMut<'this>,
+    {
+        self.copy().set_perm(self.perm_mut().as_mut())
     }
 
     pub fn weak_ref<'this>(&self) -> Ptr<PointsTo<'this>, T::Erased>
@@ -117,7 +141,8 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     where
         Perm: IsPointsTo<'this>,
     {
-        unsafe { self.cast_pred() }
+        let (ptr, perm) = self.split();
+        ptr.set_perm(perm.drop_pred())
     }
 }
 

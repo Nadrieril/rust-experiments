@@ -71,9 +71,9 @@ pub type UninitOwned<'this, Pred = ()> = PointsTo<'this, PUninitOwned, Pred>;
 
 impl<T> Ptr<ExistsLt!(Own<'_>), T> {
     #[expect(unused)]
-    pub fn new(val: T) -> Self {
+    pub fn new_owned(val: T) -> Self {
         let non_null = Box::into_non_null(Box::new(val));
-        unsafe { Ptr::from_non_null(non_null) }
+        Ptr::new(non_null, unsafe { <_>::new() })
     }
 }
 impl<'this, Pred: PointeePred, T> Ptr<Own<'this, Pred>, T> {
@@ -98,7 +98,7 @@ impl Ptr<(), ()> {
     ) -> R {
         let non_null =
             Box::into_non_null(Box::<MaybeUninit<T::Of<'_>>>::new_uninit()).cast::<T::Of<'_>>();
-        let ptr = unsafe { Ptr::from_non_null(non_null) };
+        let ptr = Ptr::new(non_null, unsafe { <_>::new() });
         f(ptr)
     }
 }
@@ -113,6 +113,16 @@ impl<'this, T> Ptr<UninitOwned<'this>, T> {
 pub unsafe trait IsPointsTo<'this>: PtrPerm + Sized {
     type Access: PtrAccess;
     type Pred: PointeePred;
+    fn as_points_to(&self) -> PointsTo<'this> {
+        unsafe { <_>::new() }
+    }
+    #[expect(unused)]
+    fn drop_access(self) -> PointsTo<'this, (), Self::Pred> {
+        unsafe { PointsTo::new() }
+    }
+    fn drop_pred(self) -> PointsTo<'this, Self::Access, ()> {
+        unsafe { PointsTo::new() }
+    }
 }
 unsafe impl<'this, Access, Pred> IsPointsTo<'this> for PointsTo<'this, Access, Pred>
 where
@@ -126,11 +136,19 @@ where
 pub unsafe trait HasOwn<'this>: IsPointsTo<'this> {}
 unsafe impl<'this, Pred: PointeePred> HasOwn<'this> for Own<'this, Pred> {}
 
-pub unsafe trait HasMut<'this>: IsPointsTo<'this> {}
+pub unsafe trait HasMut<'this>: IsPointsTo<'this> {
+    fn as_mut(&mut self) -> Mut<'this, '_, Self::Pred> {
+        unsafe { <_>::new() }
+    }
+}
 unsafe impl<'this, T: HasOwn<'this>> HasMut<'this> for T {}
 unsafe impl<'this, Pred: PointeePred> HasMut<'this> for Mut<'this, '_, Pred> {}
 
-pub unsafe trait HasRead<'this>: IsPointsTo<'this> {}
+pub unsafe trait HasRead<'this>: IsPointsTo<'this> {
+    fn as_read(&self) -> Read<'this, '_, Self::Pred> {
+        unsafe { <_>::new() }
+    }
+}
 unsafe impl<'this, T: HasMut<'this>> HasRead<'this> for T {}
 unsafe impl<'this, Pred: PointeePred> HasRead<'this> for Read<'this, '_, Pred> {}
 
