@@ -9,6 +9,7 @@ use permissions::*;
 use ptr::*;
 
 /// Represents `exists<'this> T::Of<'this>`.
+#[repr(transparent)]
 pub struct ExistsLt<T: PackLt> {
     /// The lifetime is a lie.
     inner: T::Of<'static>,
