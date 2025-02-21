@@ -4,7 +4,7 @@ use crate::ExistsLt;
 /// `Prev` and `Next` are permissions
 // The permissions are in generics to be able to move permissions around easily. The `HasPermField`
 // trait helps manage these permissions.
-struct Node<Prev = (), Next = ()> {
+struct Node<Prev = NoPerm, Next = NoPerm> {
     val: usize,
     prev: Option<Ptr<Prev, Node>>,
     next: Option<Ptr<Next, Node>>,
@@ -21,9 +21,9 @@ unsafe impl<Prev, Next> EraseNestedPerms for Node<Prev, Next> {
     type Erased = Node;
 }
 
-unsafe impl<Prev, Next> HasPermField<FPrev, Prev> for Node<Prev, Next> {
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasPermField<FPrev, Prev> for Node<Prev, Next> {
     type FieldTy = Node;
-    type ChangePerm<NewPrev> = Node<NewPrev, Next>;
+    type ChangePerm<NewPrev: PtrPerm> = Node<NewPrev, Next>;
     fn field_ref(&self, _: FPrev) -> &Option<Ptr<Prev, Self::FieldTy>> {
         &self.prev
     }
@@ -31,9 +31,9 @@ unsafe impl<Prev, Next> HasPermField<FPrev, Prev> for Node<Prev, Next> {
         &mut self.prev
     }
 }
-unsafe impl<Prev, Next> HasPermField<FNext, Next> for Node<Prev, Next> {
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasPermField<FNext, Next> for Node<Prev, Next> {
     type FieldTy = Node;
-    type ChangePerm<NewNext> = Node<Prev, NewNext>;
+    type ChangePerm<NewNext: PtrPerm> = Node<Prev, NewNext>;
     fn field_ref(&self, _: FNext) -> &Option<Ptr<Next, Self::FieldTy>> {
         &self.next
     }

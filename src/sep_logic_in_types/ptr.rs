@@ -15,7 +15,11 @@ pub struct Ptr<Perm, T> {
     phantom: PhantomData<(Perm, *mut T)>,
 }
 
-impl<Perm, T> Ptr<Perm, T> {
+/// Permission token on a pointer.
+/// Safety: must be transmutable with `PhantomData`.
+pub unsafe trait PtrPerm {}
+
+impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     pub unsafe fn from_non_null(ptr: NonNull<T>) -> Self {
         Self {
             ptr,
@@ -142,7 +146,7 @@ impl<Perm, T> Ptr<Perm, T> {
     }
 }
 
-impl<Perm, T> Ptr<Perm, ExistsLt<T>>
+impl<Perm: PtrPerm, T> Ptr<Perm, ExistsLt<T>>
 where
     T: PackLt,
 {
@@ -174,7 +178,7 @@ impl<'this, P, T> Ptr<P, T> {
 }
 
 /// Give a name to the hidden lifetime in a pointer permissions.
-pub fn unpack_opt_perm_lt<Perm, T, R>(
+pub fn unpack_opt_perm_lt<Perm: PtrPerm, T, R>(
     ptr: Option<Ptr<Perm, T>>,
     f: impl for<'this> FnOnce(Option<Ptr<Perm::Of<'this>, T>>) -> R,
 ) -> R
@@ -188,12 +192,15 @@ where
 }
 
 /// Hide the lifetime in a pointer permissions.
-pub fn pack_perm_lt<'this, Perm: PackLt, T>(ptr: Ptr<Perm::Of<'this>, T>) -> Ptr<Perm, T> {
+pub fn pack_perm_lt<'this, Perm: PackLt, T>(ptr: Ptr<Perm::Of<'this>, T>) -> Ptr<Perm, T>
+where
+    Perm::Of<'this>: PtrPerm,
+{
     unsafe { ptr.cast_perm() }
 }
 
 /// Hide the lifetime in a pointer target.
-pub fn pack_target_lt<'this, Perm, T: PackLt>(
+pub fn pack_target_lt<'this, Perm: PtrPerm, T: PackLt>(
     ptr: Ptr<Perm, T::Of<'this>>,
 ) -> Ptr<Perm, ExistsLt<T>> {
     // Safety: `ExistsLt` is `repr(transparent)`

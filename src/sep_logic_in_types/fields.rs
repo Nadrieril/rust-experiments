@@ -5,7 +5,7 @@ use higher_kinded_types::ForLt as PackLt;
 /// `Self` imply the corresponding predicates in `Target`.
 pub unsafe trait EraseNestedPerms: Sized {
     type Erased;
-    fn erase_nested_perms<Perm>(ptr: Ptr<Perm, Self>) -> Ptr<Perm, Self::Erased> {
+    fn erase_nested_perms<Perm: PtrPerm>(ptr: Ptr<Perm, Self>) -> Ptr<Perm, Self::Erased> {
         // Safety: ok by the precondition.
         unsafe { ptr.cast_ty() }
     }
@@ -25,9 +25,10 @@ where
 pub unsafe trait HasPermField<FieldTok, FieldPerm>: EraseNestedPerms
 where
     FieldTok: Copy,
+    FieldPerm: PtrPerm,
 {
     type FieldTy;
-    type ChangePerm<NewPerm>: HasPermField<FieldTok, NewPerm>
+    type ChangePerm<NewPerm: PtrPerm>: HasPermField<FieldTok, NewPerm>
         + EraseNestedPerms<Erased = Self::Erased>;
 
     fn field_ref(&self, _tok: FieldTok) -> &Option<Ptr<FieldPerm, Self::FieldTy>>;
@@ -69,6 +70,7 @@ where
     )
     where
         PtrPerm: HasOwn<'this>,
+        NewPerm: self::PtrPerm,
     {
         let mut ptr = self;
         let old_field_val = ptr
