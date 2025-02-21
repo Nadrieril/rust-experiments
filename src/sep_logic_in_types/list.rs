@@ -163,6 +163,7 @@ mod list_helpers {
 // wait no, to guarantee ownership _without a runtime check_ (as this would require
 // going through the list looking for a ptr equal to `last`), the `None` must be
 // proof-carrying.
+//   -> wait no, the wand carries the proof
 // impl<'this, 'prev, 'last> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev, 'last> {
 //     type Unpacked = Node<PointsTo<'prev>, (PackLt!(Own<'_, NodeStateFwd<'_, 'this, 'last>>, IfNull<Eq<'this, 'last>>))>;
 // }
@@ -313,7 +314,7 @@ impl<'a> Iterator for ListIterMut<'a> {
                 let (ptr, next) = ptr.read_field(FNext);
                 // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PointsTo<'next>>>
                 // next: Ptr<Mut<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
-                let ptr = ptr.erase_target_perms();
+                let ptr = ptr.drop_target_perms();
                 (ptr, next.map(pack_lt))
             })
         }

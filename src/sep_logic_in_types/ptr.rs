@@ -76,22 +76,23 @@ impl<Perm, T> Ptr<Perm, T> {
         unsafe { self.unsafe_copy().cast_access() }
     }
 
-    pub fn weak_ref_no_erase<'this>(&self) -> Ptr<PointsTo<'this, (), Perm::Pred>, T>
+    /// Copy the pointer. The copied pointer has no permissions.
+    pub fn copy<'this>(&self) -> Ptr<PointsTo<'this>, T>
     where
         Perm: IsPointsTo<'this>,
     {
-        unsafe { self.unsafe_copy().cast_access() }
+        unsafe { self.unsafe_copy().cast_perm() }
     }
 
-    pub fn weak_ref<'this>(&self) -> Ptr<PointsTo<'this, (), Perm::Pred>, T::Erased>
+    pub fn weak_ref<'this>(&self) -> Ptr<PointsTo<'this>, T::Erased>
     where
         Perm: IsPointsTo<'this>,
         T: EraseNestedPerms,
     {
-        self.weak_ref_no_erase().erase_target_perms()
+        self.copy().drop_target_perms()
     }
 
-    pub fn erase_target_perms(self) -> Ptr<Perm, T::Erased>
+    pub fn drop_target_perms(self) -> Ptr<Perm, T::Erased>
     where
         T: EraseNestedPerms,
     {
