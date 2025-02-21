@@ -1,4 +1,5 @@
 use super::{fields::*, permissions::*, ptr::*, ExistsLt, PackLt};
+use crate::ExistsLt;
 
 /// `Prev` and `Next` are permissions
 // The permissions are in generics to be able to move permissions around easily. The `HasPermField`
@@ -342,7 +343,7 @@ impl<'this> ListCursorInner<'this> {
     }
 
     /// Helper.
-    fn pack_lt(self) -> ExistsLt<PackLt!(ListCursorInner<'_>)> {
+    fn pack_lt(self) -> ExistsLt!(ListCursorInner<'_>) {
         ExistsLt::pack_lt(self)
     }
 
@@ -414,7 +415,7 @@ impl<'this> ListCursorInner<'this> {
     }
 
     /// Advance the cursor. Returns `Err(self)` if the cursor could not be advanced.
-    pub fn next(self) -> Result<ExistsLt<PackLt!(ListCursorInner<'_>)>, Self> {
+    pub fn next(self) -> Result<ExistsLt!(ListCursorInner<'_>), Self> {
         if self.ptr.deref().next.is_none() {
             return Err(self);
         };
@@ -518,7 +519,7 @@ impl<'this> ListCursorInner<'this> {
         })
     }
     /// Move the cursor backwards. Returns `Err(self)` if the cursor could not be moved.
-    pub fn prev(self) -> Result<ExistsLt<PackLt!(ListCursorInner<'_>)>, Self> {
+    pub fn prev(self) -> Result<ExistsLt!(ListCursorInner<'_>), Self> {
         if self.ptr.deref().prev.is_none() {
             return Err(self);
         };
@@ -558,7 +559,7 @@ impl<'this> ListCursorInner<'this> {
 }
 
 pub struct ListCursor<'a> {
-    inner: Option<ExistsLt<PackLt!(ListCursorInner<'_>)>>,
+    inner: Option<ExistsLt!(ListCursorInner<'_>)>,
     /// Borrow of the original list. While the cursor exists, the list thinks it's empty. Call
     /// `restore_list` to restore the list to the expected state.
     /// This is only `None` if we moved the value out, to prevent drop.

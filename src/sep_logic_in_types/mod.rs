@@ -16,6 +16,11 @@ pub struct ExistsLt<T: PackLt> {
     inner: T::Of<'static>,
 }
 
+#[macro_export]
+macro_rules! ExistsLt {
+    ($($tt:tt)*) => { ExistsLt<higher_kinded_types::ForLt!($($tt)*)> }
+}
+
 impl<T: PackLt> ExistsLt<T> {
     pub fn pack_lt(val: T::Of<'_>) -> Self {
         Self {
