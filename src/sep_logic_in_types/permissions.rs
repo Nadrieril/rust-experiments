@@ -1,12 +1,24 @@
-use super::ptr::*;
+use super::{ptr::*, ExistsLt};
 use higher_kinded_types::ForLt as PackLt;
 use std::{marker::PhantomData, mem::MaybeUninit};
 
 /// Token that grants no permissions to a pointer.
 pub struct NoPerm(PhantomData<()>);
-unsafe impl PtrPerm for NoPerm {}
+unsafe impl PtrPerm for NoPerm {
+    unsafe fn new() -> Self {
+        NoPerm(PhantomData)
+    }
+}
 
-unsafe impl<T: PackLt> PtrPerm for T where for<'a> T::Of<'a>: PtrPerm {}
+unsafe impl<T: PackLt> PtrPerm for T
+where
+    for<'a> T::Of<'a>: PtrPerm,
+{
+    unsafe fn new() -> Self {
+        // ExistsLt::pack_lt(unsafe { <T::Of<'static>>::new() })
+        todo!()
+    }
+}
 
 /// A predicate meant for a pointer.
 /// `Perm` indicates what kind of accesses this pointer is allowed to do.
@@ -20,7 +32,11 @@ pub struct PointsTo<'this, Access: PtrAccess = (), Pred: PointeePred = ()>(
     InvariantLifetime<'this>,
 );
 
-unsafe impl<'this, Access: PtrAccess, Pred: PointeePred> PtrPerm for PointsTo<'this, Access, Pred> {}
+unsafe impl<'this, Access: PtrAccess, Pred: PointeePred> PtrPerm for PointsTo<'this, Access, Pred> {
+    unsafe fn new() -> Self {
+        Self(PhantomData, PhantomData, InvariantLifetime::default())
+    }
+}
 
 /// An access permission through a pointer.
 pub trait PtrAccess {}

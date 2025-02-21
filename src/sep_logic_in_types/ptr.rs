@@ -10,19 +10,25 @@ pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
 /// `Perm` will generally be either `PointsTo<...>` or `PackLt!(PointsTo<...>)`.
 pub struct Ptr<Perm, T> {
     ptr: NonNull<T>,
+    perm: PhantomData<Perm>,
     /// We're invariant in `T` to avoid surprises. We can only soundly be covariant in `T` for some
     /// values of `Perm`, which seems hard to express, if at all possible.
-    phantom: PhantomData<(Perm, *mut T)>,
+    phantom: PhantomData<*mut T>,
 }
 
 /// Permission token on a pointer.
 /// Safety: must be transmutable with `PhantomData`.
-pub unsafe trait PtrPerm {}
+pub unsafe trait PtrPerm: Sized {
+    /// Unsafely create a new permission token.
+    /// Safety: ensure the permission is correct.
+    unsafe fn new() -> Self;
+}
 
 impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     pub unsafe fn from_non_null(ptr: NonNull<T>) -> Self {
         Self {
             ptr,
+            perm: PhantomData,
             phantom: PhantomData,
         }
     }
@@ -33,12 +39,14 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     pub unsafe fn cast_perm<NewPerm>(self) -> Ptr<NewPerm, T> {
         Ptr {
             ptr: self.ptr,
+            perm: PhantomData,
             phantom: PhantomData,
         }
     }
     pub unsafe fn cast_ty<U>(self) -> Ptr<Perm, U> {
         Ptr {
             ptr: self.ptr.cast(),
+            perm: PhantomData,
             phantom: PhantomData,
         }
     }
@@ -60,6 +68,7 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     pub unsafe fn unsafe_copy(&self) -> Self {
         Ptr {
             ptr: self.ptr,
+            perm: PhantomData,
             phantom: PhantomData,
         }
     }
