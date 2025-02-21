@@ -1,4 +1,5 @@
 use super::{ptr::*, ExistsLt};
+use crate::ExistsLt;
 use higher_kinded_types::ForLt as PackLt;
 use std::{marker::PhantomData, mem::MaybeUninit};
 
@@ -10,13 +11,12 @@ unsafe impl PtrPerm for NoPerm {
     }
 }
 
-unsafe impl<T: PackLt> PtrPerm for T
+unsafe impl<T: PackLt> PtrPerm for ExistsLt<T>
 where
     for<'a> T::Of<'a>: PtrPerm,
 {
     unsafe fn new() -> Self {
-        // ExistsLt::pack_lt(unsafe { <T::Of<'static>>::new() })
-        todo!()
+        ExistsLt::pack_lt(unsafe { <T::Of<'static>>::new() })
     }
 }
 
@@ -69,7 +69,7 @@ pub struct PUninitOwned;
 impl PtrAccess for PUninitOwned {}
 pub type UninitOwned<'this, Pred = ()> = PointsTo<'this, PUninitOwned, Pred>;
 
-impl<T> Ptr<PackLt!(Own<'_>), T> {
+impl<T> Ptr<ExistsLt!(Own<'_>), T> {
     #[expect(unused)]
     pub fn new(val: T) -> Self {
         let non_null = Box::into_non_null(Box::new(val));
@@ -83,7 +83,7 @@ impl<'this, Pred: PointeePred, T> Ptr<Own<'this, Pred>, T> {
     }
 }
 
-impl<T> Ptr<PackLt!(UninitOwned<'_>), T> {
+impl<T> Ptr<ExistsLt!(UninitOwned<'_>), T> {
     #[expect(unused)]
     pub fn new_uninit() -> Self {
         Ptr::new_uninit_cyclic::<PackLt!(T), _>(|ptr| pack_perm_lt(ptr))

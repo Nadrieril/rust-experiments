@@ -7,7 +7,7 @@ pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
 
 /// A pointer to a `T` with permission `Perm` (one of `Own`, `Mut`, etc).
 /// Note: dropping this value may leak the target. To deallocate, call `into_inner`.
-/// `Perm` will generally be either `PointsTo<...>` or `PackLt!(PointsTo<...>)`.
+/// `Perm` will generally be either `PointsTo<...>` or `ExistsLt!(PointsTo<...>)`.
 pub struct Ptr<Perm, T> {
     ptr: NonNull<T>,
     perm: PhantomData<Perm>,
@@ -119,12 +119,15 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     {
         unsafe { self.cast_pred() }
     }
+}
 
+impl<Perm, T> Ptr<ExistsLt<Perm>, T>
+where
+    Perm: PackLt,
+    for<'a> Perm::Of<'a>: PtrPerm,
+{
     /// Give a name to the hidden lifetime in a pointer permissions.
-    pub fn unpack_lt<R>(self, f: impl for<'this> FnOnce(Ptr<Perm::Of<'this>, T>) -> R) -> R
-    where
-        Perm: PackLt,
-    {
+    pub fn unpack_lt<R>(self, f: impl for<'this> FnOnce(Ptr<Perm::Of<'this>, T>) -> R) -> R {
         f(unsafe { self.cast_perm() })
     }
     /// Give a name to the hidden lifetime in a pointer permissions.
@@ -135,7 +138,6 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         ) -> R,
     ) -> R
     where
-        Perm: PackLt,
         for<'this> Perm::Of<'this>: HasRead<'this>,
     {
         f(unsafe { self.unsafe_copy().cast_perm() })
@@ -148,7 +150,6 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         ) -> R,
     ) -> R
     where
-        Perm: PackLt,
         for<'this> Perm::Of<'this>: HasMut<'this>,
     {
         f(unsafe { self.unsafe_copy().cast_perm() })
@@ -187,12 +188,13 @@ impl<'this, P, T> Ptr<P, T> {
 }
 
 /// Give a name to the hidden lifetime in a pointer permissions.
-pub fn unpack_opt_perm_lt<Perm: PtrPerm, T, R>(
-    ptr: Option<Ptr<Perm, T>>,
+pub fn unpack_opt_perm_lt<Perm, T, R>(
+    ptr: Option<Ptr<ExistsLt<Perm>, T>>,
     f: impl for<'this> FnOnce(Option<Ptr<Perm::Of<'this>, T>>) -> R,
 ) -> R
 where
     Perm: PackLt,
+    for<'a> Perm::Of<'a>: PtrPerm,
 {
     match ptr {
         None => f(None),
@@ -201,9 +203,9 @@ where
 }
 
 /// Hide the lifetime in a pointer permissions.
-pub fn pack_perm_lt<'this, Perm: PackLt, T>(ptr: Ptr<Perm::Of<'this>, T>) -> Ptr<Perm, T>
+pub fn pack_perm_lt<'this, Perm: PackLt, T>(ptr: Ptr<Perm::Of<'this>, T>) -> Ptr<ExistsLt<Perm>, T>
 where
-    Perm::Of<'this>: PtrPerm,
+    for<'a> Perm::Of<'a>: PtrPerm,
 {
     unsafe { ptr.cast_perm() }
 }

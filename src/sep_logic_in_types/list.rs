@@ -1,4 +1,4 @@
-use super::{fields::*, permissions::*, ptr::*, ExistsLt, PackLt};
+use super::{fields::*, permissions::*, ptr::*, ExistsLt};
 use crate::ExistsLt;
 
 /// `Prev` and `Next` are permissions
@@ -77,22 +77,24 @@ mod list_helpers {
     use super::*;
 
     #[derive(Debug)]
-    pub struct NonEmptyListInner<'prev>(Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node>);
+    pub struct NonEmptyListInner<'prev>(Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node>);
 
     impl<'prev> NonEmptyListInner<'prev> {
         pub fn new(val: usize, prev: Option<Ptr<PointsTo<'prev>, Node>>) -> Self {
             Self(prepend_inner(Err(prev), val))
         }
-        pub fn from_ptr(ptr: Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node>) -> Self {
+        pub fn from_ptr(ptr: Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node>) -> Self {
             Self(ptr)
         }
-        pub fn into_ptr(self) -> Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+        pub fn into_ptr(self) -> Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
             self.0
         }
-        pub fn as_ptr(&self) -> &Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+        pub fn as_ptr(&self) -> &Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
             &self.0
         }
-        pub fn as_ptr_mut(&mut self) -> &mut Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+        pub fn as_ptr_mut(
+            &mut self,
+        ) -> &mut Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
             &mut self.0
         }
 
@@ -139,7 +141,7 @@ mod list_helpers {
             Option<Ptr<PointsTo<'prev>, Node>>,
         >,
         val: usize,
-    ) -> Ptr<PackLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+    ) -> Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
         // We need to allocate a new node at address `'new` that can have `'new` in
         // its type, hence the need for a closure like this. We must pack the `'new`
         // brand before returning.
@@ -287,7 +289,7 @@ impl Drop for List {
 pub struct ListIter<'a>(
     Option<
         Ptr<
-            PackLt!(<'prev> = PackLt!(<'this> = Read<'this, 'a, NodeStateFwd<'this, 'prev>>)),
+            ExistsLt!(<'prev> = ExistsLt!(<'this> = Read<'this, 'a, NodeStateFwd<'this, 'prev>>)),
             Node,
         >,
     >,
@@ -298,7 +300,7 @@ impl<'a> Iterator for ListIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         fn advance<'this, 'prev, 'a>(
             ptr: Ptr<Read<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>,
-        ) -> Option<Ptr<PackLt!(Read<'_, 'a, NodeStateFwd<'_, 'this>>), Node>> {
+        ) -> Option<Ptr<ExistsLt!(Read<'_, 'a, NodeStateFwd<'_, 'this>>), Node>> {
             let ptr = NodeStateFwd::unpack(ptr);
             // ptr: Ptr<
             //    Read<'this, 'a>,
@@ -325,7 +327,10 @@ impl<'a> Iterator for ListIter<'a> {
 
 pub struct ListIterMut<'a>(
     Option<
-        Ptr<PackLt!(<'prev> = PackLt!(<'this> = Mut<'this, 'a, NodeStateFwd<'this, 'prev>>)), Node>,
+        Ptr<
+            ExistsLt!(<'prev> = ExistsLt!(<'this> = Mut<'this, 'a, NodeStateFwd<'this, 'prev>>)),
+            Node,
+        >,
     >,
 );
 
@@ -336,7 +341,7 @@ impl<'a> Iterator for ListIterMut<'a> {
             ptr: Ptr<Mut<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>,
         ) -> (
             Ptr<Mut<'this, 'a>, Node>,
-            Option<Ptr<PackLt!(Mut<'_, 'a, NodeStateFwd<'_, 'this>>), Node>>,
+            Option<Ptr<ExistsLt!(Mut<'_, 'a, NodeStateFwd<'_, 'this>>), Node>>,
         ) {
             let ptr = NodeStateFwd::unpack(ptr);
             ptr.unpack_target_lt(|ptr| {
@@ -429,7 +434,7 @@ impl<'this> ListCursorInner<'this> {
                 None => NonEmptyListInner::new(val, Some(ptr.weak_ref())),
             };
             let ptr = Self::unsplit(ptr, Some(next));
-            // ptr: Ptr<PackLt!(Own<'_, NodeStateCursor<'_>>), Node>
+            // ptr: Ptr<ExistsLt!(Own<'_, NodeStateCursor<'_>>), Node>
             Self { ptr }
         })
     }
