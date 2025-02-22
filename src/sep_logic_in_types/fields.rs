@@ -1,6 +1,7 @@
 use std::ptr::NonNull;
 
 use super::*;
+use crate::ExistsLt;
 use higher_kinded_types::ForLt as PackLt;
 
 /// Safety: `Self` and `Target` are the same modulo predicates in `Ptr`, and the predicates in
@@ -38,11 +39,37 @@ where
         _tok: FieldTok,
     ) -> NonNull<Option<Ptr<FieldPerm, Self::FieldTy>>>;
 
+    #[expect(unused)]
     fn field_ref(&self, tok: FieldTok) -> &Option<Ptr<FieldPerm, Self::FieldTy>> {
         unsafe { Self::field_raw(NonNull::from(self), tok).as_ref() }
     }
+    #[expect(unused)]
     fn field_mut(&mut self, tok: FieldTok) -> &mut Option<Ptr<FieldPerm, Self::FieldTy>> {
         unsafe { Self::field_raw(NonNull::from(self), tok).as_mut() }
+    }
+
+    /// Given a pointer to `self`, get a pointer to the field, with the same permissions. While the
+    /// new pointer is active, the permissions to `self` are inaccessible (because it was moved
+    /// out). The original permissions can be recovered by relinquishing the subpointer using the
+    /// returned wand.
+    fn get_field<'this, 'field, PtrPerm, NewFieldPerm: self::PtrPerm>(
+        self: Ptr<PtrPerm, Self>,
+        tok: FieldTok,
+    ) -> ExistsLt!(<'sub> = (
+            Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
+            Wand<
+                Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<NewFieldPerm, Self::FieldTy>>>,
+                Ptr<PtrPerm, Self::ChangePerm<NewFieldPerm>>
+            >,
+       ))
+    where
+        PtrPerm: HasRead<'this>,
+    {
+        let (ptr, perm) = self.split();
+        let sub_ptr = unsafe { Self::field_raw(ptr.as_non_null(), tok) };
+        let wand = unsafe { Wand::new(ptr.set_perm(perm).cast_ty()).map() };
+        let ptr = Ptr::new(sub_ptr, unsafe { <_>::new() });
+        ExistsLt::pack_lt((ptr, wand))
     }
 
     /// Read the contents of the field, taking the permissions with it as much as possible.
@@ -51,27 +78,25 @@ where
         tok: FieldTok,
     ) -> (
         Ptr<PtrPerm, Self::ChangePerm<PointsTo<'field>>>,
-        Option<Ptr<FieldPerm::AccessThrough, Self::FieldTy>>,
+        Option<Ptr<AccessThroughType<'this, 'field, PtrPerm, FieldPerm>, Self::FieldTy>>,
     )
     where
         PtrPerm: HasRead<'this>,
         FieldPerm: IsPointsTo<'field>,
-        FieldPerm: AccessThroughHelper<'field, 'this, PtrPerm>,
+        FieldPerm::Access: AccessThrough<PtrPerm::Access>,
     {
-        let ptr = self;
-        // Safety: by the invariant of `AccessThrough`, it's ok to get that pointer out.
-        let field = ptr
-            .deref()
-            .field_ref(tok)
-            .as_ref()
-            .map(|ptr| unsafe { ptr.unsafe_copy().cast_access() });
-        // Safety: we're downgrading a `IsPointsTo<'a>` to a `PointsTo<'a>`, which is fine even without
-        // any particular permissions on `ptr`.
-        let ptr = unsafe { ptr.cast_ty() };
-        (ptr, field)
+        self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
+            // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
+            let (ptr_to_field, inner) = ptr_to_field.read_nested_ptr();
+            // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<PointsTo<'inner>, Self::FieldTy>>>,
+            // inner: Option<Ptr<FieldPerm::AccessThrough, Self::FieldTy>>,
+            let ptr = wand.apply(ptr_to_field);
+            // ptr: Ptr<PtrPerm, Self::ChangePerm<PointsTo<'field>>>,
+            (ptr, inner)
+        })
     }
     /// Writes the given pointer into the field.
-    fn write_field<'this, PtrPerm, NewPerm>(
+    fn write_field<'this, 'field, PtrPerm, NewPerm>(
         self: Ptr<PtrPerm, Self>,
         tok: FieldTok,
         new: Option<Ptr<NewPerm, Self::FieldTy>>,
@@ -81,43 +106,42 @@ where
     )
     where
         PtrPerm: HasOwn<'this>,
+        FieldPerm: IsPointsTo<'field>,
         NewPerm: self::PtrPerm,
     {
-        let mut ptr = self;
-        let old_field_val = ptr
-            .deref()
-            .field_ref(tok)
-            .as_ref()
-            .map(|new| unsafe { new.unsafe_copy() });
-        *ptr.deref_mut().field_mut(tok) = new.map(|new| unsafe { new.cast_perm() });
-        let new_ptr = unsafe { ptr.cast_ty() };
-        (new_ptr, old_field_val)
+        self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
+            // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
+            let (ptr_to_field, inner) = ptr_to_field.read_nested_ptr();
+            // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<PointsTo<'inner>, Self::FieldTy>>>,
+            // inner: Option<Ptr<PointsTo<'_, FieldPerm::Access, FieldPerm::Pred>, Self::FieldTy>>
+            let inner = inner.map(|inner| inner.map_perm(FieldPerm::from_points_to));
+            // inner: Option<Ptr<FieldPerm, Self::FieldTy>>,
+            let ptr_to_field = ptr_to_field.write_nested_ptr(new);
+            // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<NewPerm, Self::FieldTy>>>,
+            let ptr = wand.apply(ptr_to_field);
+            // ptr: Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
+            (ptr, inner)
+        })
     }
     /// Like `write_field` but only moves permissions around. Does not write to memory.
     fn write_field_permission<'this, 'field, PtrPerm, NewPerm>(
         self: Ptr<PtrPerm, Self>,
         tok: FieldTok,
-        _new: Ptr<NewPerm, Self::FieldTy>,
-    ) -> (
-        Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
-        Option<Ptr<FieldPerm, Self::FieldTy>>,
-    )
+        new: Ptr<NewPerm, Self::FieldTy>,
+    ) -> Ptr<PtrPerm, Self::ChangePerm<NewPerm>>
     where
         PtrPerm: HasOwn<'this>,
         FieldPerm: IsPointsTo<'field>,
         NewPerm: IsPointsTo<'field>,
     {
-        let ptr = self;
-        let old_field_val = ptr
-            .deref()
-            .field_ref(tok)
-            .as_ref()
-            .map(|new| unsafe { new.unsafe_copy() });
-        // Safety: this has the same operation as `write_field`, except we don't need to
-        // actually write to memory because the `'field` brand ensures the pointer values are
-        // already equal.
-        let ptr = unsafe { ptr.cast_ty() };
-        (ptr, old_field_val)
+        let (_, new_perm) = new.split();
+        self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
+            // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
+            let ptr_to_field = ptr_to_field.write_nested_ptr_perm(new_perm);
+            let ptr = wand.apply(ptr_to_field);
+            // ptr: Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
+            ptr
+        })
     }
 }
 

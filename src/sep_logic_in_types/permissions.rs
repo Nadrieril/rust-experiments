@@ -113,7 +113,11 @@ impl<'this, T> Ptr<UninitOwned<'this>, T> {
 pub unsafe trait IsPointsTo<'this>: PtrPerm + Sized {
     type Access: PtrAccess;
     type Pred: PointeePred;
-    fn as_points_to(&self) -> PointsTo<'this> {
+    fn from_points_to(x: PointsTo<'this, Self::Access, Self::Pred>) -> Self;
+    #[expect(unused)]
+    fn into_points_to(self) -> PointsTo<'this, Self::Access, Self::Pred>;
+
+    fn as_permissionless(&self) -> PointsTo<'this> {
         unsafe { <_>::new() }
     }
     #[expect(unused)]
@@ -131,6 +135,12 @@ where
 {
     type Pred = Pred;
     type Access = Access;
+    fn into_points_to(self) -> Self {
+        self
+    }
+    fn from_points_to(x: Self) -> Self {
+        x
+    }
 }
 
 pub unsafe trait AtLeastOwn: PtrAccess {}
@@ -172,31 +182,22 @@ pub unsafe trait AccessThrough<Outer: PtrAccess>: PtrAccess {
     type AccessThrough: PtrAccess;
 }
 
-/// Helper trait that constructs the through-permission for a given pair.
-pub trait AccessThroughHelper<'inner, 'outer, Outer>:
-    IsPointsTo<'inner, Access: AccessThrough<Outer::Access>>
-where
-    Outer: IsPointsTo<'outer>,
-{
-    type AccessThrough: IsPointsTo<'inner, Pred = Self::Pred>;
-}
-impl<'inner, 'outer, InnerPerm, OuterPerm> AccessThroughHelper<'inner, 'outer, OuterPerm>
-    for InnerPerm
+/// Helper type that constructs the through-permission for a given pair of permissions.
+#[allow(type_alias_bounds)]
+pub type AccessThroughType<'outer, 'inner, OuterPerm, InnerPerm>
 where
     OuterPerm: IsPointsTo<'outer>,
     InnerPerm: IsPointsTo<'inner, Access: AccessThrough<OuterPerm::Access>>,
-{
-    type AccessThrough = PointsTo<
-        'inner,
-        <InnerPerm::Access as AccessThrough<OuterPerm::Access>>::AccessThrough,
-        InnerPerm::Pred,
-    >;
-}
+= PointsTo<
+    'inner,
+    <InnerPerm::Access as AccessThrough<OuterPerm::Access>>::AccessThrough,
+    InnerPerm::Pred,
+>;
 
 mod access_through_impls {
     use super::*;
     /// `Own` gives full access to inner permissions.
-    unsafe impl<Perm: PtrAccess> AccessThrough<POwn> for Perm {
+    unsafe impl<Perm: PtrAccess, Access: AtLeastOwn> AccessThrough<Access> for Perm {
         type AccessThrough = Perm;
     }
     /// `Mut` gives at most `Mut` access.

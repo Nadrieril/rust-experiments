@@ -55,6 +55,16 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         }
     }
 
+    /// Transform the contained permission.
+    pub fn map_perm<'this, NewPerm>(self, f: impl FnOnce(Perm) -> NewPerm) -> Ptr<NewPerm, T>
+    where
+        Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this>,
+    {
+        let (ptr, perm) = self.split();
+        ptr.set_perm(f(perm))
+    }
+
     pub fn as_non_null(&self) -> NonNull<T> {
         self.ptr
     }
@@ -103,7 +113,7 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     where
         Perm: IsPointsTo<'this>,
     {
-        Ptr::new(self.as_non_null(), self.perm.as_points_to())
+        Ptr::new(self.as_non_null(), self.perm.as_permissionless())
     }
     #[expect(unused)]
     pub fn copy_read<'this>(&self) -> Ptr<Read<'this, '_, Perm::Pred>, T>
@@ -161,6 +171,57 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         } else {
             None
         }
+    }
+}
+
+impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
+    /// Read a pointer behind a pointer, taking the permissions with it as much as possible.
+    pub fn read_nested_ptr<'this, 'inner>(
+        self,
+    ) -> (
+        Ptr<OuterPerm, Option<Ptr<PointsTo<'inner>, T>>>,
+        Option<Ptr<AccessThroughType<'this, 'inner, OuterPerm, InnerPerm>, T>>,
+    )
+    where
+        OuterPerm: HasRead<'this>,
+        InnerPerm: IsPointsTo<'inner>,
+        InnerPerm::Access: AccessThrough<OuterPerm::Access>,
+    {
+        // Safety: by the invariant of `AccessThrough`, it's ok to get that pointer out.
+        let inner = self
+            .deref()
+            .as_ref()
+            .map(|ptr| unsafe { ptr.unsafe_copy().cast_access() });
+        // Safety: we're downgrading a `IsPointsTo<'a>` to a `PointsTo<'a>`, which is fine even without
+        // any particular permissions on `ptr`.
+        let ptr = unsafe { self.cast_ty() };
+        (ptr, inner)
+    }
+
+    pub fn write_nested_ptr<'this, NewInnerPerm>(
+        mut self,
+        new: Option<Ptr<NewInnerPerm, T>>,
+    ) -> Ptr<OuterPerm, Option<Ptr<NewInnerPerm, T>>>
+    where
+        OuterPerm: HasOwn<'this>,
+        InnerPerm: PtrPerm,
+        NewInnerPerm: PtrPerm,
+    {
+        *self.deref_mut() = new.map(|new| unsafe { new.cast_perm() });
+        unsafe { self.cast_ty() }
+    }
+
+    /// Like `write_nested_ptr` but does not write to memory.
+    pub fn write_nested_ptr_perm<'this, 'inner, NewInnerPerm>(
+        self,
+        _new: NewInnerPerm,
+    ) -> Ptr<OuterPerm, Option<Ptr<NewInnerPerm, T>>>
+    where
+        OuterPerm: HasOwn<'this>,
+        InnerPerm: IsPointsTo<'inner>,
+        NewInnerPerm: IsPointsTo<'inner>,
+    {
+        unsafe { self.cast_ty() }
     }
 }
 
