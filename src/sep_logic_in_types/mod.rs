@@ -34,6 +34,13 @@ impl<T: PackLt> ExistsLt<T> {
             inner: unsafe { std::mem::transmute(val) },
         }
     }
+    pub fn pack_lt_ref<'a>(val: &'a T::Of<'_>) -> &'a Self {
+        unsafe { std::mem::transmute(val) }
+    }
+    pub fn pack_lt_mut<'a>(val: &'a mut T::Of<'_>) -> &'a mut Self {
+        unsafe { std::mem::transmute(val) }
+    }
+
     pub fn unpack_lt<R>(self, f: impl for<'this> FnOnce(T::Of<'this>) -> R) -> R {
         f(unsafe { std::mem::transmute(self.inner) })
     }

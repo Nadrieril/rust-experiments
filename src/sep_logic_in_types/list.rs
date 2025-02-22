@@ -75,40 +75,41 @@ impl<'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
 
 use list_helpers::NonEmptyList;
 mod list_helpers {
-    use super::super::{fields::*, permissions::*, PackLt};
+    use super::super::*;
     use super::*;
 
-    pub struct NonEmptyList<'prev>(
-        ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>),
-    );
+    struct NonEmptyListInner<'this, 'prev> {
+        ptr: Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+    }
+    pub struct NonEmptyList<'prev>(ExistsLt!(<'this> = NonEmptyListInner<'this, 'prev>));
 
     impl<'prev> NonEmptyList<'prev> {
         pub fn new(val: usize, prev: Option<Ptr<PointsTo<'prev>, Node>>) -> Self {
-            Self(prepend_inner(Err(prev), val))
+            prepend_inner(Err(prev), val)
         }
-        pub fn from_ptr(
-            ptr: ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>),
-        ) -> Self {
-            Self(ptr)
+        pub fn from_ptr<'this>(ptr: Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) -> Self {
+            Self(ExistsLt::pack_lt(NonEmptyListInner { ptr }))
         }
         pub fn into_ptr(
             self,
         ) -> ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
-            self.0
+            self.0.unpack_lt(|inner| ExistsLt::pack_lt(inner.ptr))
         }
         pub fn as_ptr(
             &self,
         ) -> &ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
-            &self.0
+            self.0
+                .unpack_lt_ref(|inner| ExistsLt::pack_lt_ref(&inner.ptr))
         }
         pub fn as_ptr_mut(
             &mut self,
         ) -> &mut ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
-            &mut self.0
+            self.0
+                .unpack_lt_mut(|inner| ExistsLt::pack_lt_mut(&mut inner.ptr))
         }
 
         pub fn prepend_inner(self, val: usize) -> Self {
-            self.0.unpack_lt(|ptr| Self(prepend_inner(Ok(ptr), val)))
+            self.0.unpack_lt(|inner| prepend_inner(Ok(inner.ptr), val))
         }
         pub fn pop_front(self) -> (Option<Self>, Option<usize>) {
             self.into_ptr().unpack_lt(|ptr| {
@@ -132,7 +133,7 @@ mod list_helpers {
                             let next = pack_target_lt(next);
                             let next = NodeStateFwd::pack(next);
                             // next: Ptr<Own<'next, NodeStateFwd<'next, 'prev>>, Node>
-                            Self(ExistsLt::pack_lt(next))
+                            Self::from_ptr(next)
                         })
                     });
                     (list, Some(val))
@@ -150,7 +151,7 @@ mod list_helpers {
             Option<Ptr<PointsTo<'prev>, Node>>,
         >,
         val: usize,
-    ) -> ExistsLt!(Ptr<Own<'_, NodeStateFwd<'_, 'prev>>, Node>) {
+    ) -> NonEmptyList<'prev> {
         // We need to allocate a new node at address `'new` that can have `'new` in
         // its type, hence the need for a closure like this. We must pack the `'new`
         // brand before returning.
@@ -185,7 +186,7 @@ mod list_helpers {
             let new = new.write(node);
             let new = NodeStateFwd::pack(new);
             // Pack the `'new` lifetime
-            ExistsLt::pack_lt(new)
+            NonEmptyList::from_ptr(new)
         })
     }
 }
@@ -411,7 +412,7 @@ impl<'this> ListCursorInner<'this> {
                 // Extract the ownership in `next` (and get a copy of that pointer).
                 let (ptr, next) = ptr.read_field(FNext);
                 // let ptr = Node::pack_field_lt(ptr, FNext);
-                let next = next.map(|next| NonEmptyList::from_ptr(ExistsLt::pack_lt(next)));
+                let next = next.map(|next| NonEmptyList::from_ptr(next));
                 f(ptr, next)
             })
         })
@@ -605,7 +606,6 @@ impl<'this> ListCursorInner<'this> {
                 let (ptr, _) = ptr.write_field(FPrev, None);
                 let ptr = pack_target_lt(ptr);
                 let ptr = NodeStateFwd::pack(ptr);
-                let ptr = ExistsLt::pack_lt(ptr);
                 List(Some(NonEmptyList::from_ptr(ptr)))
             })
         })
