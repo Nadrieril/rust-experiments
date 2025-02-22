@@ -73,16 +73,16 @@ impl<'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
     );
 }
 
-use list_helpers::NonEmptyListInner;
+use list_helpers::NonEmptyList;
 mod list_helpers {
     use super::super::{fields::*, permissions::*, PackLt};
     use super::*;
 
-    pub struct NonEmptyListInner<'prev>(
+    pub struct NonEmptyList<'prev>(
         ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>),
     );
 
-    impl<'prev> NonEmptyListInner<'prev> {
+    impl<'prev> NonEmptyList<'prev> {
         pub fn new(val: usize, prev: Option<Ptr<PointsTo<'prev>, Node>>) -> Self {
             Self(prepend_inner(Err(prev), val))
         }
@@ -231,7 +231,7 @@ mod list_helpers {
 // ergo: keep current thing, but allow taking predicates directly.
 // -> makes pairs of preds easy to handle
 // make `NullablePtr` and `IfNull` predicate.
-pub struct List(Option<NonEmptyListInner<'static>>);
+pub struct List(Option<NonEmptyList<'static>>);
 
 impl List {
     pub fn new() -> Self {
@@ -243,7 +243,7 @@ impl List {
         let ptr = self.0.take();
         let new = match ptr {
             Some(list) => list.prepend_inner(val),
-            None => NonEmptyListInner::new(val, None),
+            None => NonEmptyList::new(val, None),
         };
         self.0 = Some(new);
     }
@@ -392,7 +392,7 @@ impl<'this> ListCursorInner<'this> {
         ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>,
         f: impl for<'prev, 'next> FnOnce(
             Ptr<Own<'this>, Node<Own<'prev, NodeStateBwd<'prev, 'this>>, PointsTo<'next>>>,
-            Option<NonEmptyListInner<'this>>,
+            Option<NonEmptyList<'this>>,
         ) -> R,
     ) -> R {
         // ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>
@@ -411,7 +411,7 @@ impl<'this> ListCursorInner<'this> {
                 // Extract the ownership in `next` (and get a copy of that pointer).
                 let (ptr, next) = ptr.read_field(FNext);
                 // let ptr = Node::pack_field_lt(ptr, FNext);
-                let next = next.map(|next| NonEmptyListInner::from_ptr(ExistsLt::pack_lt(next)));
+                let next = next.map(|next| NonEmptyList::from_ptr(ExistsLt::pack_lt(next)));
                 f(ptr, next)
             })
         })
@@ -420,7 +420,7 @@ impl<'this> ListCursorInner<'this> {
     /// Helper: reverse `split`.
     fn unsplit<'prev, 'next>(
         ptr: Ptr<Own<'this>, Node<Own<'prev, NodeStateBwd<'prev, 'this>>, PointsTo<'next>>>,
-        next: Option<NonEmptyListInner<'this>>,
+        next: Option<NonEmptyList<'this>>,
     ) -> Ptr<Own<'this, NodeStateCursor<'this>>, Node> {
         let next = next.map(|next| next.into_ptr());
         ExistsLt::unpack_opt_lt(next, |next| {
@@ -437,7 +437,7 @@ impl<'this> ListCursorInner<'this> {
         Self::split(self.ptr, |ptr, next| {
             let next = match next {
                 Some(next) => next.prepend_inner(val),
-                None => NonEmptyListInner::new(val, Some(ptr.weak_ref())),
+                None => NonEmptyList::new(val, Some(ptr.weak_ref())),
             };
             let ptr = Self::unsplit(ptr, Some(next));
             // ptr: Ptr<ExistsLt!(Own<'_, NodeStateCursor<'_>>), Node>
@@ -606,7 +606,7 @@ impl<'this> ListCursorInner<'this> {
                 let ptr = pack_target_lt(ptr);
                 let ptr = NodeStateFwd::pack(ptr);
                 let ptr = ExistsLt::pack_lt(ptr);
-                List(Some(NonEmptyListInner::from_ptr(ptr)))
+                List(Some(NonEmptyList::from_ptr(ptr)))
             })
         })
     }
