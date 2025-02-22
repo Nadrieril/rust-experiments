@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use super::{fields::*, permissions::*, ptr::*, ExistsLt};
 use crate::ExistsLt;
 
@@ -24,21 +26,21 @@ unsafe impl<Prev, Next> EraseNestedPerms for Node<Prev, Next> {
 unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasPermField<FPrev, Prev> for Node<Prev, Next> {
     type FieldTy = Node;
     type ChangePerm<NewPrev: PtrPerm> = Node<NewPrev, Next>;
-    fn field_ref(&self, _: FPrev) -> &Option<Ptr<Prev, Self::FieldTy>> {
-        &self.prev
-    }
-    fn field_mut(&mut self, _: FPrev) -> &mut Option<Ptr<Prev, Self::FieldTy>> {
-        &mut self.prev
+    unsafe fn field_raw(
+        ptr: std::ptr::NonNull<Self>,
+        _tok: FPrev,
+    ) -> std::ptr::NonNull<Option<Ptr<Prev, Self::FieldTy>>> {
+        unsafe { NonNull::new_unchecked(&raw mut (*ptr.as_ptr()).prev) }
     }
 }
 unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasPermField<FNext, Next> for Node<Prev, Next> {
     type FieldTy = Node;
     type ChangePerm<NewNext: PtrPerm> = Node<Prev, NewNext>;
-    fn field_ref(&self, _: FNext) -> &Option<Ptr<Next, Self::FieldTy>> {
-        &self.next
-    }
-    fn field_mut(&mut self, _: FNext) -> &mut Option<Ptr<Next, Self::FieldTy>> {
-        &mut self.next
+    unsafe fn field_raw(
+        ptr: std::ptr::NonNull<Self>,
+        _tok: FNext,
+    ) -> std::ptr::NonNull<Option<Ptr<Next, Self::FieldTy>>> {
+        unsafe { NonNull::new_unchecked(&raw mut (*ptr.as_ptr()).next) }
     }
 }
 

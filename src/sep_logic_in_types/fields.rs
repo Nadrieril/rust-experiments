@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use super::*;
 use higher_kinded_types::ForLt as PackLt;
 
@@ -31,11 +33,20 @@ where
     type ChangePerm<NewPerm: PtrPerm>: HasPermField<FieldTok, NewPerm>
         + EraseNestedPerms<Erased = Self::Erased>;
 
-    fn field_ref(&self, _tok: FieldTok) -> &Option<Ptr<FieldPerm, Self::FieldTy>>;
-    fn field_mut(&mut self, _tok: FieldTok) -> &mut Option<Ptr<FieldPerm, Self::FieldTy>>;
+    unsafe fn field_raw(
+        ptr: NonNull<Self>,
+        _tok: FieldTok,
+    ) -> NonNull<Option<Ptr<FieldPerm, Self::FieldTy>>>;
 
-    /// Read the cintents of the field, taking the permissions with it as much as possible.
-    fn read_field<'this, 'field, 'a, PtrPerm>(
+    fn field_ref(&self, tok: FieldTok) -> &Option<Ptr<FieldPerm, Self::FieldTy>> {
+        unsafe { Self::field_raw(NonNull::from(self), tok).as_ref() }
+    }
+    fn field_mut(&mut self, tok: FieldTok) -> &mut Option<Ptr<FieldPerm, Self::FieldTy>> {
+        unsafe { Self::field_raw(NonNull::from(self), tok).as_mut() }
+    }
+
+    /// Read the contents of the field, taking the permissions with it as much as possible.
+    fn read_field<'this, 'field, PtrPerm>(
         self: Ptr<PtrPerm, Self>,
         tok: FieldTok,
     ) -> (
