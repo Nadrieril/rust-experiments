@@ -144,6 +144,24 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         let (ptr, perm) = self.split();
         ptr.set_perm(perm.drop_pred())
     }
+
+    /// Compare two pointers for equality. Because of the `HasAllocated` constraint, the target can
+    /// never have been deallocated, so address equality implies that the pointers are
+    /// interchangeable. The returned equality predicate is a witness of this interchangeability.
+    /// This would not be the case with `IsPointsTo`, as two pointers can have the same address but
+    /// different provenance.
+    #[expect(unused)]
+    pub fn eq<'this, 'other, Q, U>(&self, other: &Ptr<Q, U>) -> Option<EqPredicate<'this, 'other>>
+    where
+        Perm: HasAllocated<'this>,
+        Q: HasAllocated<'other>,
+    {
+        if self.ptr.addr() == other.ptr.addr() {
+            Some(unsafe { EqPredicate::make() })
+        } else {
+            None
+        }
+    }
 }
 
 impl<Perm, T> Ptr<ExistsLt<Perm>, T>
@@ -189,26 +207,6 @@ where
     pub fn unpack_target_lt<R>(self, f: impl for<'this> FnOnce(Ptr<Perm, T::Of<'this>>) -> R) -> R {
         // Safety: `ExistsLt` is `repr(transparent)`
         f(unsafe { self.cast_ty() })
-    }
-}
-
-impl<'this, P, T> Ptr<P, T> {
-    /// Compare two pointers for equality. Because of the `HasAllocated` constraint, the target can
-    /// never have been deallocated, so address equality implies that the pointers are
-    /// interchangeable. The returned equality predicate is a witness of this interchangeability.
-    /// This would not be the case with `IsPointsTo`, as two pointers can have the same address but
-    /// different provenance.
-    #[expect(unused)]
-    pub fn eq<'other, Q, U>(&self, other: &Ptr<Q, U>) -> Option<EqPredicate<'this, 'other>>
-    where
-        P: HasAllocated<'this>,
-        Q: HasAllocated<'other>,
-    {
-        if self.ptr.addr() == other.ptr.addr() {
-            Some(unsafe { EqPredicate::make() })
-        } else {
-            None
-        }
     }
 }
 
