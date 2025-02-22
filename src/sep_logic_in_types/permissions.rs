@@ -133,28 +133,38 @@ where
     type Access = Access;
 }
 
-pub unsafe trait HasOwn<'this>: IsPointsTo<'this> {}
-unsafe impl<'this, Pred: PointeePred> HasOwn<'this> for Own<'this, Pred> {}
+pub unsafe trait AtLeastOwn: PtrAccess {}
+unsafe impl AtLeastOwn for POwn {}
 
-pub unsafe trait HasMut<'this>: IsPointsTo<'this> {
+pub unsafe trait AtLeastMut: PtrAccess {}
+unsafe impl<T: AtLeastOwn> AtLeastMut for T {}
+unsafe impl AtLeastMut for PMut<'_> {}
+
+pub unsafe trait AtLeastRead: PtrAccess {}
+unsafe impl<T: AtLeastMut> AtLeastRead for T {}
+unsafe impl AtLeastRead for PRead<'_> {}
+
+pub unsafe trait AtLeastAllocated: PtrAccess {}
+unsafe impl<T: AtLeastRead> AtLeastAllocated for T {}
+
+pub trait HasOwn<'this> = IsPointsTo<'this, Access: AtLeastOwn>;
+
+pub trait HasMut<'this>: IsPointsTo<'this, Access: AtLeastMut> {
     fn as_mut(&mut self) -> Mut<'this, '_, Self::Pred> {
         unsafe { <_>::new() }
     }
 }
-unsafe impl<'this, T: HasOwn<'this>> HasMut<'this> for T {}
-unsafe impl<'this, Pred: PointeePred> HasMut<'this> for Mut<'this, '_, Pred> {}
+impl<'this, T> HasMut<'this> for T where T: IsPointsTo<'this, Access: AtLeastMut> {}
 
-pub unsafe trait HasRead<'this>: IsPointsTo<'this> {
+pub trait HasRead<'this>: IsPointsTo<'this, Access: AtLeastRead> {
     fn as_read(&self) -> Read<'this, '_, Self::Pred> {
         unsafe { <_>::new() }
     }
 }
-unsafe impl<'this, T: HasMut<'this>> HasRead<'this> for T {}
-unsafe impl<'this, Pred: PointeePred> HasRead<'this> for Read<'this, '_, Pred> {}
+impl<'this, T> HasRead<'this> for T where T: IsPointsTo<'this, Access: AtLeastRead> {}
 
 /// The target is guaranteed to stay allocated as long as the permission exists.
-pub unsafe trait HasAllocated<'this>: IsPointsTo<'this> {}
-unsafe impl<'this, T: HasRead<'this>> HasAllocated<'this> for T {}
+pub trait HasAllocated<'this> = IsPointsTo<'this, Access: AtLeastAllocated>;
 
 /// Describes the behavior of nested permissions. Namely, a `Ptr<Outer, Ptr<Self, T>>` can be
 /// turned into `(Ptr<Outer, Ptr<PointsTo, T>>, Ptr<Output, T>)`.
@@ -163,15 +173,18 @@ pub unsafe trait AccessThrough<Outer: PtrAccess>: PtrAccess {
 }
 
 /// Helper trait that constructs the through-permission for a given pair.
-pub trait AccessThroughHelper<'inner, 'outer, Outer>: IsPointsTo<'inner> {
+pub trait AccessThroughHelper<'inner, 'outer, Outer>:
+    IsPointsTo<'inner, Access: AccessThrough<Outer::Access>>
+where
+    Outer: IsPointsTo<'outer>,
+{
     type AccessThrough: IsPointsTo<'inner, Pred = Self::Pred>;
 }
 impl<'inner, 'outer, InnerPerm, OuterPerm> AccessThroughHelper<'inner, 'outer, OuterPerm>
     for InnerPerm
 where
     OuterPerm: IsPointsTo<'outer>,
-    InnerPerm: IsPointsTo<'inner>,
-    InnerPerm::Access: AccessThrough<OuterPerm::Access>,
+    InnerPerm: IsPointsTo<'inner, Access: AccessThrough<OuterPerm::Access>>,
 {
     type AccessThrough = PointsTo<
         'inner,

@@ -1,5 +1,6 @@
 #![feature(arbitrary_self_types)]
 #![feature(box_vec_non_null)]
+#![feature(trait_alias)]
 
 pub mod alias_owned;
 pub mod bi_owned;
