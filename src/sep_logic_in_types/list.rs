@@ -78,38 +78,35 @@ mod list_helpers {
     use super::super::*;
     use super::*;
 
-    struct NonEmptyListInner<'this, 'prev> {
-        ptr: Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-    }
-    pub struct NonEmptyList<'prev>(ExistsLt!(<'this> = NonEmptyListInner<'this, 'prev>));
+    pub struct NonEmptyList<'prev>(
+        ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>),
+    );
 
     impl<'prev> NonEmptyList<'prev> {
         pub fn new(val: usize, prev: Option<Ptr<PointsTo<'prev>, Node>>) -> Self {
             prepend_inner(Err(prev), val)
         }
         pub fn from_ptr<'this>(ptr: Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) -> Self {
-            Self(ExistsLt::pack_lt(NonEmptyListInner { ptr }))
+            Self(ExistsLt::pack_lt(ptr))
         }
         pub fn into_ptr(
             self,
         ) -> ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
-            self.0.unpack_lt(|inner| ExistsLt::pack_lt(inner.ptr))
+            self.0
         }
         pub fn as_ptr(
             &self,
         ) -> &ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
-            self.0
-                .unpack_lt_ref(|inner| ExistsLt::pack_lt_ref(&inner.ptr))
+            &self.0
         }
         pub fn as_ptr_mut(
             &mut self,
         ) -> &mut ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
-            self.0
-                .unpack_lt_mut(|inner| ExistsLt::pack_lt_mut(&mut inner.ptr))
+            &mut self.0
         }
 
         pub fn prepend_inner(self, val: usize) -> Self {
-            self.0.unpack_lt(|inner| prepend_inner(Ok(inner.ptr), val))
+            self.0.unpack_lt(|ptr| prepend_inner(Ok(ptr), val))
         }
         pub fn pop_front(self) -> (Option<Self>, Option<usize>) {
             self.into_ptr().unpack_lt(|ptr| {
