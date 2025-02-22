@@ -75,28 +75,35 @@ impl<'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
 
 use list_helpers::NonEmptyListInner;
 mod list_helpers {
-    use super::super::{fields::*, permissions::*, ptr::*, PackLt};
+    use super::super::{fields::*, permissions::*, PackLt};
     use super::*;
 
-    #[derive(Debug)]
-    pub struct NonEmptyListInner<'prev>(Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node>);
+    pub struct NonEmptyListInner<'prev>(
+        ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>),
+    );
 
     impl<'prev> NonEmptyListInner<'prev> {
         pub fn new(val: usize, prev: Option<Ptr<PointsTo<'prev>, Node>>) -> Self {
             Self(prepend_inner(Err(prev), val))
         }
-        pub fn from_ptr(ptr: Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node>) -> Self {
+        pub fn from_ptr(
+            ptr: ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>),
+        ) -> Self {
             Self(ptr)
         }
-        pub fn into_ptr(self) -> Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+        pub fn into_ptr(
+            self,
+        ) -> ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
             self.0
         }
-        pub fn as_ptr(&self) -> &Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+        pub fn as_ptr(
+            &self,
+        ) -> &ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
             &self.0
         }
         pub fn as_ptr_mut(
             &mut self,
-        ) -> &mut Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+        ) -> &mut ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
             &mut self.0
         }
 
@@ -125,7 +132,7 @@ mod list_helpers {
                             let next = pack_target_lt(next);
                             let next = NodeStateFwd::pack(next);
                             // next: Ptr<Own<'next, NodeStateFwd<'next, 'prev>>, Node>
-                            Self(pack_perm_lt(next))
+                            Self(ExistsLt::pack_lt(next))
                         })
                     });
                     (list, Some(val))
@@ -143,7 +150,7 @@ mod list_helpers {
             Option<Ptr<PointsTo<'prev>, Node>>,
         >,
         val: usize,
-    ) -> Ptr<ExistsLt!(Own<'_, NodeStateFwd<'_, 'prev>>), Node> {
+    ) -> ExistsLt!(Ptr<Own<'_, NodeStateFwd<'_, 'prev>>, Node>) {
         // We need to allocate a new node at address `'new` that can have `'new` in
         // its type, hence the need for a closure like this. We must pack the `'new`
         // brand before returning.
@@ -178,7 +185,7 @@ mod list_helpers {
             let new = new.write(node);
             let new = NodeStateFwd::pack(new);
             // Pack the `'new` lifetime
-            pack_perm_lt(new)
+            ExistsLt::pack_lt(new)
         })
     }
 }
@@ -224,7 +231,6 @@ mod list_helpers {
 // ergo: keep current thing, but allow taking predicates directly.
 // -> makes pairs of preds easy to handle
 // make `NullablePtr` and `IfNull` predicate.
-#[derive(Debug)]
 pub struct List(Option<NonEmptyListInner<'static>>);
 
 impl List {
@@ -268,15 +274,23 @@ impl List {
     }
 
     pub fn iter(&self) -> ListIter<'_> {
-        ListIter(self.0.as_ref().map(|ptr| {
-            ptr.as_ptr()
-                .unpack_lt_ref(|ptr| pack_perm_lt(pack_perm_lt(ptr)))
+        ListIter(self.0.as_ref().map(|nelist| {
+            nelist.as_ptr().unpack_lt_ref(|ptr| {
+                // ptr: &Ptr<Own<'_, NodeStateFwd<'_, '_>>, Node>
+                let ptr = ptr.map_perm_ref(|perm| perm.as_read());
+                // ptr: Ptr<Read<'_, '_, NodeStateFwd<'_, '_>>, Node>
+                ExistsLt::pack_lt(ExistsLt::pack_lt(ptr))
+            })
         }))
     }
     pub fn iter_mut(&mut self) -> ListIterMut<'_> {
-        ListIterMut(self.0.as_mut().map(|ptr| {
-            ptr.as_ptr_mut()
-                .unpack_lt_mut(|ptr| pack_perm_lt(pack_perm_lt(ptr)))
+        ListIterMut(self.0.as_mut().map(|nelist| {
+            nelist.as_ptr_mut().unpack_lt_mut(|ptr| {
+                // ptr: &mut Ptr<Own<'_, NodeStateFwd<'_, '_>>, Node>
+                let ptr = ptr.map_perm_mut(|perm| perm.as_mut());
+                // ptr: Ptr<Mut<'_, '_, NodeStateFwd<'_, '_>>, Node>
+                ExistsLt::pack_lt(ExistsLt::pack_lt(ptr))
+            })
         }))
     }
 }
@@ -289,12 +303,7 @@ impl Drop for List {
 
 // We existentially quantify two pointer tags: the current one and the previous one.
 pub struct ListIter<'a>(
-    Option<
-        Ptr<
-            ExistsLt!(<'prev> = ExistsLt!(<'this> = Read<'this, 'a, NodeStateFwd<'this, 'prev>>)),
-            Node,
-        >,
-    >,
+    Option<ExistsLt!(<'prev, 'this> = Ptr<Read<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>)>,
 );
 
 impl<'a> Iterator for ListIter<'a> {
@@ -302,7 +311,7 @@ impl<'a> Iterator for ListIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         fn advance<'this, 'prev, 'a>(
             ptr: Ptr<Read<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>,
-        ) -> Option<Ptr<ExistsLt!(Read<'_, 'a, NodeStateFwd<'_, 'this>>), Node>> {
+        ) -> Option<ExistsLt!(Ptr<Read<'_, 'a, NodeStateFwd<'_, 'this>>, Node>)> {
             let ptr = NodeStateFwd::unpack(ptr);
             // ptr: Ptr<
             //    Read<'this, 'a>,
@@ -314,13 +323,13 @@ impl<'a> Iterator for ListIter<'a> {
                 // ptr: Ptr<Read<'this, 'a>, Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
                 let next = ptr.read_field(FNext).1?;
                 // next: Ptr<Read<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
-                Some(pack_perm_lt(next))
+                Some(ExistsLt::pack_lt(next))
             })
         }
         self.0.take()?.unpack_lt(|ptr| {
             ptr.unpack_lt(|ptr| {
                 let val = &ptr.deref_exact().val;
-                self.0 = advance(ptr).map(pack_perm_lt);
+                self.0 = advance(ptr).map(ExistsLt::pack_lt);
                 Some(val)
             })
         })
@@ -328,12 +337,7 @@ impl<'a> Iterator for ListIter<'a> {
 }
 
 pub struct ListIterMut<'a>(
-    Option<
-        Ptr<
-            ExistsLt!(<'prev> = ExistsLt!(<'this> = Mut<'this, 'a, NodeStateFwd<'this, 'prev>>)),
-            Node,
-        >,
-    >,
+    Option<ExistsLt!(<'prev, 'this> = Ptr<Mut<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>)>,
 );
 
 impl<'a> Iterator for ListIterMut<'a> {
@@ -343,7 +347,7 @@ impl<'a> Iterator for ListIterMut<'a> {
             ptr: Ptr<Mut<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>,
         ) -> (
             Ptr<Mut<'this, 'a>, Node>,
-            Option<Ptr<ExistsLt!(Mut<'_, 'a, NodeStateFwd<'_, 'this>>), Node>>,
+            Option<ExistsLt!(Ptr<Mut<'_, 'a, NodeStateFwd<'_, 'this>>, Node>)>,
         ) {
             let ptr = NodeStateFwd::unpack(ptr);
             ptr.unpack_target_lt(|ptr| {
@@ -352,13 +356,13 @@ impl<'a> Iterator for ListIterMut<'a> {
                 // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PointsTo<'next>>>
                 // next: Ptr<Mut<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
                 let ptr = ptr.drop_target_perms();
-                (ptr, next.map(pack_perm_lt))
+                (ptr, next.map(ExistsLt::pack_lt))
             })
         }
         self.0.take()?.unpack_lt(|ptr| {
             ptr.unpack_lt(|ptr| {
                 let (ptr, next) = advance(ptr);
-                self.0 = next.map(pack_perm_lt);
+                self.0 = next.map(ExistsLt::pack_lt);
                 Some(&mut ptr.into_deref_mut().val)
             })
         })
@@ -407,7 +411,7 @@ impl<'this> ListCursorInner<'this> {
                 // Extract the ownership in `next` (and get a copy of that pointer).
                 let (ptr, next) = ptr.read_field(FNext);
                 // let ptr = Node::pack_field_lt(ptr, FNext);
-                let next = next.map(|next| NonEmptyListInner::from_ptr(pack_perm_lt(next)));
+                let next = next.map(|next| NonEmptyListInner::from_ptr(ExistsLt::pack_lt(next)));
                 f(ptr, next)
             })
         })
@@ -419,7 +423,7 @@ impl<'this> ListCursorInner<'this> {
         next: Option<NonEmptyListInner<'this>>,
     ) -> Ptr<Own<'this, NodeStateCursor<'this>>, Node> {
         let next = next.map(|next| next.into_ptr());
-        unpack_opt_perm_lt(next, |next| {
+        ExistsLt::unpack_opt_lt(next, |next| {
             // Update `ptr.next`.
             let (ptr, _) = ptr.write_field(FNext, next);
             // Unexpand permissions
@@ -601,7 +605,7 @@ impl<'this> ListCursorInner<'this> {
                 let (ptr, _) = ptr.write_field(FPrev, None);
                 let ptr = pack_target_lt(ptr);
                 let ptr = NodeStateFwd::pack(ptr);
-                let ptr = pack_perm_lt(ptr);
+                let ptr = ExistsLt::pack_lt(ptr);
                 List(Some(NonEmptyListInner::from_ptr(ptr)))
             })
         })

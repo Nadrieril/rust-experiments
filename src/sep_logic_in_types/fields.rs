@@ -68,7 +68,7 @@ where
         let (ptr, perm) = self.split();
         let sub_ptr = unsafe { Self::field_raw(ptr.as_non_null(), tok) };
         let wand = unsafe { Wand::new(ptr.set_perm(perm).cast_ty()).map() };
-        let ptr = Ptr::new(sub_ptr, unsafe { <_>::new() });
+        let ptr = Ptr::new(sub_ptr, unsafe { PointsTo::new() });
         ExistsLt::pack_lt((ptr, wand))
     }
 

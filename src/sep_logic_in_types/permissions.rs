@@ -11,15 +11,6 @@ unsafe impl PtrPerm for NoPerm {
     }
 }
 
-unsafe impl<T: PackLt> PtrPerm for ExistsLt<T>
-where
-    for<'a> T::Of<'a>: PtrPerm,
-{
-    unsafe fn new() -> Self {
-        ExistsLt::pack_lt(unsafe { <T::Of<'static>>::new() })
-    }
-}
-
 /// A predicate meant for a pointer.
 /// `Perm` indicates what kind of accesses this pointer is allowed to do.
 /// `Pred` is a predicate on the pointed-to-value.
@@ -69,13 +60,6 @@ pub struct PUninitOwned;
 impl PtrAccess for PUninitOwned {}
 pub type UninitOwned<'this, Pred = ()> = PointsTo<'this, PUninitOwned, Pred>;
 
-impl<T> Ptr<ExistsLt!(Own<'_>), T> {
-    #[expect(unused)]
-    pub fn new_owned(val: T) -> Self {
-        let non_null = Box::into_non_null(Box::new(val));
-        Ptr::new(non_null, unsafe { <_>::new() })
-    }
-}
 impl<'this, Pred: PointeePred, T> Ptr<Own<'this, Pred>, T> {
     pub fn into_inner(self) -> T {
         // Safety: we have full ownership.
@@ -83,14 +67,19 @@ impl<'this, Pred: PointeePred, T> Ptr<Own<'this, Pred>, T> {
     }
 }
 
-impl<T> Ptr<ExistsLt!(UninitOwned<'_>), T> {
-    #[expect(unused)]
-    pub fn new_uninit() -> Self {
-        Ptr::new_uninit_cyclic::<PackLt!(T), _>(|ptr| pack_perm_lt(ptr))
-    }
-}
-
 impl Ptr<(), ()> {
+    #[expect(unused)]
+    pub fn new_owned<T>(val: T) -> ExistsLt!(Ptr<Own<'_>, T>) {
+        let non_null = Box::into_non_null(Box::new(val));
+        let ptr = Ptr::new(non_null, unsafe { Own::new() });
+        ExistsLt::pack_lt(ptr)
+    }
+
+    #[expect(unused)]
+    pub fn new_uninit<T>() -> ExistsLt!(Ptr<UninitOwned<'_>, T>) {
+        Ptr::new_uninit_cyclic::<PackLt!(T), _>(|ptr| ExistsLt::pack_lt(ptr))
+    }
+
     /// Alloc a non-initialized location that can contain a pointer to itself. This
     /// self-reference will have to be hidden away before returning of course.
     pub fn new_uninit_cyclic<T: PackLt, R>(
@@ -98,7 +87,7 @@ impl Ptr<(), ()> {
     ) -> R {
         let non_null =
             Box::into_non_null(Box::<MaybeUninit<T::Of<'_>>>::new_uninit()).cast::<T::Of<'_>>();
-        let ptr = Ptr::new(non_null, unsafe { <_>::new() });
+        let ptr = Ptr::new(non_null, unsafe { UninitOwned::new() });
         f(ptr)
     }
 }

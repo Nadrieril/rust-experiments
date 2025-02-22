@@ -64,6 +64,28 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         let (ptr, perm) = self.split();
         ptr.set_perm(f(perm))
     }
+    /// Transform the contained permission.
+    pub fn map_perm_ref<'this, 'a, NewPerm>(
+        &'a self,
+        f: impl FnOnce(&'a Perm) -> NewPerm,
+    ) -> Ptr<NewPerm, T>
+    where
+        Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this>,
+    {
+        self.copy().set_perm(f(&self.perm))
+    }
+    /// Transform the contained permission.
+    pub fn map_perm_mut<'this, 'a, NewPerm>(
+        &'a mut self,
+        f: impl FnOnce(&'a mut Perm) -> NewPerm,
+    ) -> Ptr<NewPerm, T>
+    where
+        Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this>,
+    {
+        self.copy().set_perm(f(&mut self.perm))
+    }
 
     pub fn as_non_null(&self) -> NonNull<T> {
         self.ptr
@@ -225,41 +247,6 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     }
 }
 
-impl<Perm, T> Ptr<ExistsLt<Perm>, T>
-where
-    Perm: PackLt,
-    for<'a> Perm::Of<'a>: PtrPerm,
-{
-    /// Give a name to the hidden lifetime in a pointer permissions.
-    pub fn unpack_lt<R>(self, f: impl for<'this> FnOnce(Ptr<Perm::Of<'this>, T>) -> R) -> R {
-        f(unsafe { self.cast_perm() })
-    }
-    /// Give a name to the hidden lifetime in a pointer permissions.
-    pub fn unpack_lt_ref<'a, R>(
-        &'a self,
-        f: impl for<'this> FnOnce(
-            Ptr<Read<'this, 'a, <Perm::Of<'this> as IsPointsTo<'this>>::Pred>, T>,
-        ) -> R,
-    ) -> R
-    where
-        for<'this> Perm::Of<'this>: HasRead<'this>,
-    {
-        f(unsafe { self.unsafe_copy().cast_perm() })
-    }
-    /// Give a name to the hidden lifetime in a pointer permissions.
-    pub fn unpack_lt_mut<'a, R>(
-        &'a mut self,
-        f: impl for<'this> FnOnce(
-            Ptr<Mut<'this, 'a, <Perm::Of<'this> as IsPointsTo<'this>>::Pred>, T>,
-        ) -> R,
-    ) -> R
-    where
-        for<'this> Perm::Of<'this>: HasMut<'this>,
-    {
-        f(unsafe { self.unsafe_copy().cast_perm() })
-    }
-}
-
 impl<Perm: PtrPerm, T> Ptr<Perm, ExistsLt<T>>
 where
     T: PackLt,
@@ -269,29 +256,6 @@ where
         // Safety: `ExistsLt` is `repr(transparent)`
         f(unsafe { self.cast_ty() })
     }
-}
-
-/// Give a name to the hidden lifetime in a pointer permissions.
-pub fn unpack_opt_perm_lt<Perm, T, R>(
-    ptr: Option<Ptr<ExistsLt<Perm>, T>>,
-    f: impl for<'this> FnOnce(Option<Ptr<Perm::Of<'this>, T>>) -> R,
-) -> R
-where
-    Perm: PackLt,
-    for<'a> Perm::Of<'a>: PtrPerm,
-{
-    match ptr {
-        None => f(None),
-        Some(ptr) => ptr.unpack_lt(|ptr| f(Some(ptr))),
-    }
-}
-
-/// Hide the lifetime in a pointer permissions.
-pub fn pack_perm_lt<'this, Perm: PackLt, T>(ptr: Ptr<Perm::Of<'this>, T>) -> Ptr<ExistsLt<Perm>, T>
-where
-    for<'a> Perm::Of<'a>: PtrPerm,
-{
-    unsafe { ptr.cast_perm() }
 }
 
 /// Hide the lifetime in a pointer target.

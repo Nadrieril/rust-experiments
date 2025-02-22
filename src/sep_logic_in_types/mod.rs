@@ -46,6 +46,19 @@ impl<T: PackLt> ExistsLt<T> {
     ) -> R {
         f(unsafe { std::mem::transmute(&mut self.inner) })
     }
+
+    pub fn unpack_opt_lt<R>(
+        opt_self: Option<Self>,
+        f: impl for<'this> FnOnce(Option<T::Of<'this>>) -> R,
+    ) -> R
+    where
+        T: PackLt,
+    {
+        match opt_self {
+            None => f(None),
+            Some(x) => x.unpack_lt(|x| f(Some(x))),
+        }
+    }
 }
 
 /// Witness that `'a` and `'b` are interchangeable, for an notion of "interchangeable" appropriate
