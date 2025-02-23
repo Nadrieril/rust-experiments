@@ -28,6 +28,10 @@ macro_rules! ExistsLt {
     };
 }
 
+// TODO: implement generic pack/unpack with ForLt.
+// oops: this isn't actually safe because it's not actually parametric because of associated types
+// :'(
+// I really want safe transmute
 impl<T: PackLt> ExistsLt<T> {
     pub fn pack_lt(val: T::Of<'_>) -> Self {
         Self {

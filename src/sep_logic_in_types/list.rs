@@ -70,6 +70,105 @@ impl PointeePred for NodeStateCursor<'_> {}
 impl<'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
     type Unpacked = ExistsLt!(<'prev, 'next> =
         Node<Own<'prev, NodeStateBwd<'prev, 'this>>, Own<'next, NodeStateFwd<'next, 'this>>>
+        // Tagged<
+        //     (Own<'prev, NodeStateBwd<'prev, 'this>>, Own<'next, NodeStateFwd<'next, 'this>>),
+        //     Node<PointsTo<'prev>, PointsTo<'next>>,
+        // >
+        // Warning: doing everything with tags may preclude having lists of pointers? maybe not:
+        // Vec<Exists!(Ptr<'_, Node<'this>>)>
+
+        // The difficulty is how to apply a predicate. Presumably it must unify the quantified
+        // lifetime with the one in the predicate somehow.
+        //
+        // Ptr<'this, T> * PointsTo<'this, PackedPred>
+        // <->
+        // Ptr<'this, T> * <PackedPred as PackedPredicate<'this, T>>::Unpacked
+        //
+        // type ErasedNode = ExistsLt!(<'prev, 'next> = Node<'prev, 'next>);
+        // impl<'prev, 'next, 'this, 'prev0> PackedPredicate<'this, Node<'prev, 'next>> for NodeStateFwd<'this, 'prev0> {
+        //     type Unpacked = (
+        //         EqPredicate<'prev, 'prev0>,
+        //         Own<'next, NodeStateFwd<'next, 'this>>>
+        //     );
+        // }
+
+        // Ptr<'this, Node>
+        // * Own<'this, NodeStateCursor<'this>>
+        // ->
+        // Ptr<'this, Node<'prev, 'next>>
+        // * Own<'prev, NodeStateBwd<'prev, 'this>>
+        // * Own<'next, NodeStateFwd<'next, 'this>>
+        // * Own<'this>
+        //
+        // fn get_field<'this, 'field, ...>(
+        //     self: Ptr<'this, PtrAccess, Node<'prev, 'next>>,
+        //     tok: FieldTok,
+        // ) -> ExistsLt!(<'sub> = (
+        //         Ptr<'sub, PtrAccess, Option<Ptr<'prev, Self::FieldTy>>>,
+        //         Wand<
+        //             Ptr<'sub, PtrAccess, Option<Ptr<'newprev, Self::FieldTy>>>,
+        //             Ptr<'this, PtrAccess, Node<'newprev, 'next>>
+        //         >,
+        //    ))
+        // where
+        //     PtrAccess: AtLeastRead
+        // ->>> same shit, just with changing lifetimes instead of predicates. still want `Access`
+        // inside the pointers for convenience. maybe moving predicates out of pointers makes
+        // sense, then inlining `PointsTo` so that all ptrs have lifetime brands? idk.
+
+        // next step: try the `PackedPredicate` with externalized predicates
+        // -> tbh, if we can't remove the need for type-changing modifications of `Node`, may not
+        // be worth it.
+        // exceptttt, we could make the predicates be an orthogonal addition? Ptr only handles
+        // Access, and we add `PredicateOn<'this, Pred>` for the sole purpose of packing/unpacking.
+        //
+        // Ptr<'this, Own, Node>
+        // * PredicateOn<'this, NodeStateCursor<'this>>
+        // -> unpack
+        // Ptr<'this, Own, Node<'prev, 'next>>
+        // * Own<'prev>
+        // * Own<'next>
+        // * PredicateOn<'prev, NodeStateBwd<'prev, 'this>>
+        // * PredicateOn<'next, NodeStateFwd<'next, 'this>>
+        // -> read next
+        // Ptr<'this, Own, Node<'prev, 'next>>
+        // * Own<'prev>
+        // * PredicateOn<'prev, NodeStateBwd<'prev, 'this>>
+        // * Ptr<'next, Own, Node>
+        // * PredicateOn<'next, NodeStateFwd<'next, 'this>>
+        // -> unpack
+        // Ptr<'this, Own, Node<'prev, 'next>>
+        // * Own<'prev>
+        // * PredicateOn<'prev, NodeStateBwd<'prev, 'this>>
+        // * Ptr<'next, Own, Node<'nextprev, 'nextnext>>
+        // * EqPredicate<'nextprev, 'this>
+        // * Own<'nextnext>
+        // * PredicateOn<'nextnext, NodeStateFwd<'nextnext, 'next>>
+        // -> apply eq & reorder
+        // Ptr<'next, Own, Node<'this, 'nextnext>>
+        // * Ptr<'this, Own, Node<'prev, 'next>>
+        // * Own<'nextnext>
+        // * Own<'prev>
+        // * PredicateOn<'prev, NodeStateBwd<'prev, 'this>>
+        // * PredicateOn<'nextnext, NodeStateFwd<'nextnext, 'next>>
+        // -> pack
+        // Ptr<'next, Own, Node<'this, 'nextnext>>
+        // * Ptr<'this, Own, Node<'prev, 'next>>
+        // * Own<'nextnext>
+        // * PredicateOn<'this, NodeStateBwd<'this, 'next>>
+        // * PredicateOn<'nextnext, NodeStateFwd<'nextnext, 'next>>
+        // -> drop ptr
+        // Ptr<'next, Own, Node<'this, 'nextnext>>
+        // * Own<'this>
+        // * Own<'nextnext>
+        // * PredicateOn<'this, NodeStateBwd<'this, 'next>>
+        // * PredicateOn<'nextnext, NodeStateFwd<'nextnext, 'next>>
+        // -> pack
+        // Ptr<'next, Own, Node<'this, 'nextnext>>
+        // * PredicateOn<'next, NodeStateCursor<'next>>
+        //
+        // this is honestly hella clean, if more verbose than today. would do away with the weird
+        // generics around `IsPointsTo`. would remove POwn vs Own.
     );
 }
 
