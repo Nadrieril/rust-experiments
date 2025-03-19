@@ -71,7 +71,7 @@ impl Ptr<(), ()> {
     #[expect(unused)]
     pub fn new_owned<T>(val: T) -> ExistsLt!(Ptr<Own<'_>, T>) {
         let non_null = Box::into_non_null(Box::new(val));
-        let ptr = Ptr::new(non_null, unsafe { Own::new() });
+        let ptr = unsafe { Ptr::new(non_null, Own::new()) };
         ExistsLt::pack_lt(ptr)
     }
 
@@ -87,7 +87,7 @@ impl Ptr<(), ()> {
     ) -> R {
         let non_null =
             Box::into_non_null(Box::<MaybeUninit<T::Of<'_>>>::new_uninit()).cast::<T::Of<'_>>();
-        let ptr = Ptr::new(non_null, unsafe { UninitOwned::new() });
+        let ptr = unsafe { Ptr::new(non_null, UninitOwned::new()) };
         f(ptr)
     }
 }
@@ -113,6 +113,7 @@ pub unsafe trait IsPointsTo<'this>: PtrPerm + Sized {
     fn drop_access(self) -> PointsTo<'this, (), Self::Pred> {
         unsafe { PointsTo::new() }
     }
+    #[expect(unused)]
     fn drop_pred(self) -> PointsTo<'this, Self::Access, ()> {
         unsafe { PointsTo::new() }
     }

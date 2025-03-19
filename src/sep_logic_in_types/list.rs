@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use super::{fields::*, permissions::*, ptr::*, ExistsLt};
+use super::*;
 use crate::ExistsLt;
 
 /// `Prev` and `Next` are permissions
@@ -374,7 +374,7 @@ impl List {
         ListIter(self.0.as_ref().map(|nelist| {
             nelist.as_ptr().unpack_lt_ref(|ptr| {
                 // ptr: &Ptr<Own<'_, NodeStateFwd<'_, '_>>, Node>
-                let ptr = ptr.map_perm_ref(|perm| perm.as_read());
+                let ptr = ptr.copy_read();
                 // ptr: Ptr<Read<'_, '_, NodeStateFwd<'_, '_>>, Node>
                 ExistsLt::pack_lt(ExistsLt::pack_lt(ptr))
             })
@@ -384,7 +384,7 @@ impl List {
         ListIterMut(self.0.as_mut().map(|nelist| {
             nelist.as_ptr_mut().unpack_lt_mut(|ptr| {
                 // ptr: &mut Ptr<Own<'_, NodeStateFwd<'_, '_>>, Node>
-                let ptr = ptr.map_perm_mut(|perm| perm.as_mut());
+                let ptr = ptr.copy_mut();
                 // ptr: Ptr<Mut<'_, '_, NodeStateFwd<'_, '_>>, Node>
                 ExistsLt::pack_lt(ExistsLt::pack_lt(ptr))
             })
