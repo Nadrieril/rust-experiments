@@ -43,6 +43,7 @@
 mod fields;
 pub mod list;
 mod permissions;
+mod predicates;
 mod ptr;
 mod vptr;
 mod wand;
@@ -50,6 +51,7 @@ pub use higher_kinded_types::ForLt as PackLt;
 
 use fields::*;
 use permissions::*;
+use predicates::*;
 use ptr::*;
 use std::marker::PhantomData;
 use vptr::*;
