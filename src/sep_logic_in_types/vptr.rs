@@ -1,5 +1,5 @@
 use super::*;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::Receiver};
 
 /// Like `Ptr` but doesn't store an address. Used to manage permissions in ways unobservable at
 /// runtime.
@@ -126,4 +126,8 @@ impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     {
         unsafe { self.cast_ty() }
     }
+}
+
+impl<Perm, T> Receiver for VPtr<Perm, T> {
+    type Target = T;
 }

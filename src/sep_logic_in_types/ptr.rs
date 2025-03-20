@@ -67,6 +67,7 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     {
         self.map_virtual(|v| unsafe { v.cast_access() })
     }
+    #[expect(unused)]
     pub unsafe fn cast_pred<'this, NewPerm>(self) -> Ptr<NewPerm, T>
     where
         Perm: IsPointsTo<'this>,

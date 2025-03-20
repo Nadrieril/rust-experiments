@@ -606,7 +606,7 @@ impl<'this> ListCursorInner<'this> {
                     //    >,
                     // >
                     // Insert ownership
-                    let next = next.write_field_permission(FPrev, ptr);
+                    let next = next.write_field_permission(FPrev, ptr.into_virtual());
                     // next: Ptr<Own<'next>,
                     //    Node<
                     //      Own<'this, NodeStateBwd<'this, 'next>>,
@@ -680,7 +680,7 @@ impl<'this> ListCursorInner<'this> {
                 let prev = NodeStateBwd::unpack(prev);
                 prev.unpack_target_lt(|prev| {
                     // Insert ownership
-                    let ptr = prev.write_field_permission(FNext, ptr);
+                    let ptr = prev.write_field_permission(FNext, ptr.into_virtual());
                     // Pack lifetime
                     let ptr = pack_target_lt(ptr);
                     let ptr = pack_target_lt(ptr);

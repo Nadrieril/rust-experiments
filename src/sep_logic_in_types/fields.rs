@@ -63,15 +63,15 @@ where
     ) -> ExistsLt!(<'sub> = (
             Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
             Wand<
-                Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<NewFieldPerm, Self::FieldTy>>>,
-                Ptr<PtrPerm, Self::ChangePerm<NewFieldPerm>>
+                VPtr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<NewFieldPerm, Self::FieldTy>>>,
+                VPtr<PtrPerm, Self::ChangePerm<NewFieldPerm>>
             >,
        ))
     where
         PtrPerm: HasRead<'this>,
     {
         let sub_ptr = unsafe { Self::field_raw(self.as_non_null(), tok) };
-        let wand = unsafe { Wand::new(self.cast_ty()).map() };
+        let wand = unsafe { Wand::new(self.into_virtual().cast_ty()).map() };
         let ptr = unsafe { Ptr::new_with_perm(sub_ptr, PointsTo::new()) };
         ExistsLt::pack_lt((ptr, wand))
     }
@@ -89,12 +89,13 @@ where
         FieldPerm: IsPointsTo<'field>,
         FieldPerm::Access: AccessThrough<PtrPerm::Access>,
     {
+        let this = self.copy();
         self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
             let (ptr_to_field, inner) = ptr_to_field.read_nested_ptr();
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<PointsTo<'inner>, Self::FieldTy>>>,
             // inner: Option<Ptr<FieldPerm::AccessThrough, Self::FieldTy>>,
-            let ptr = wand.apply(ptr_to_field);
+            let ptr = this.with_virtual(wand.apply(ptr_to_field.into_virtual()));
             // ptr: Ptr<PtrPerm, Self::ChangePerm<PointsTo<'field>>>,
             (ptr, inner)
         })
@@ -113,6 +114,7 @@ where
         FieldPerm: IsPointsTo<'field>,
         NewPerm: self::PtrPerm,
     {
+        let this = self.copy();
         self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
             let (ptr_to_field, inner) = ptr_to_field.read_nested_ptr();
@@ -122,7 +124,7 @@ where
             // inner: Option<Ptr<FieldPerm, Self::FieldTy>>,
             let ptr_to_field = ptr_to_field.write_nested_ptr(new);
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<NewPerm, Self::FieldTy>>>,
-            let ptr = wand.apply(ptr_to_field);
+            let ptr = this.with_virtual(wand.apply(ptr_to_field.into_virtual()));
             // ptr: Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
             (ptr, inner)
         })
@@ -131,17 +133,18 @@ where
     fn write_field_permission<'this, 'field, PtrPerm, NewPerm>(
         self: Ptr<PtrPerm, Self>,
         tok: FieldTok,
-        new: Ptr<NewPerm, Self::FieldTy>,
+        new: VPtr<NewPerm, Self::FieldTy>,
     ) -> Ptr<PtrPerm, Self::ChangePerm<NewPerm>>
     where
         PtrPerm: HasOwn<'this>,
         FieldPerm: IsPointsTo<'field>,
         NewPerm: IsPointsTo<'field>,
     {
+        let this = self.copy();
         self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
-            let ptr_to_field = ptr_to_field.write_nested_ptr_perm(new.into_virtual());
-            let ptr = wand.apply(ptr_to_field);
+            let ptr_to_field = ptr_to_field.write_nested_ptr_perm(new);
+            let ptr = this.with_virtual(wand.apply(ptr_to_field.into_virtual()));
             // ptr: Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
             ptr
         })
