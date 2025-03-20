@@ -233,7 +233,6 @@ mod read {
     }
 }
 
-#[expect(unused)]
 pub use uninit_owned::*;
 mod uninit_owned {
     use super::super::{ptr::*, ExistsLt};
@@ -272,6 +271,7 @@ mod allocated {
 
     pub unsafe trait AtLeastAllocated: PtrAccess {}
     unsafe impl<T: AtLeastRead> AtLeastAllocated for T {}
+    unsafe impl AtLeastAllocated for PUninitOwned {}
 
     /// The target is guaranteed to stay allocated as long as the permission exists.
     pub trait HasAllocated<'this> = IsPointsTo<'this, Access: AtLeastAllocated>;
