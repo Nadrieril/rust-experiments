@@ -8,7 +8,7 @@ use higher_kinded_types::ForLt as PackLt;
 /// `Self` imply the corresponding predicates in `Target`.
 pub unsafe trait EraseNestedPerms: Sized {
     type Erased;
-    fn erase_nested_perms<Perm: PtrPerm>(ptr: Ptr<Perm, Self>) -> Ptr<Perm, Self::Erased> {
+    fn erase_nested_perms<Perm: PtrPerm>(ptr: VPtr<Perm, Self>) -> VPtr<Perm, Self::Erased> {
         // Safety: ok by the precondition.
         unsafe { ptr.cast_ty() }
     }
@@ -168,7 +168,7 @@ where
     {
         let sub_ptr = unsafe { Self::field_raw(self.as_non_null(), tok) };
         let wand = unsafe { Wand::new(self.cast_ty()).map() };
-        let ptr = unsafe { Ptr::new(sub_ptr, PointsTo::new()) };
+        let ptr = unsafe { Ptr::new_with_perm(sub_ptr, PointsTo::new()) };
         ExistsLt::pack_lt((ptr, wand))
     }
 

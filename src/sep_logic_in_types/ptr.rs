@@ -10,122 +10,108 @@ pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
 /// `Perm` will generally be either `PointsTo<...>` or `ExistsLt!(PointsTo<...>)`.
 pub struct Ptr<Perm, T> {
     ptr: NonNull<T>,
-    perm: Perm,
-    /// We're invariant in `T` to avoid surprises. We can only soundly be covariant in `T` for some
-    /// values of `Perm`, which seems hard to express, if at all possible.
-    phantom: PhantomData<*mut T>,
-}
-
-/// Like `Ptr` but doesn't store an address. Used to manage permissions in ways unobservable at
-/// runtime.
-pub struct VPtr<Perm, T> {
-    /// We store the permission directly instead of as a `PhantomData` to encourage linear usage.
-    perm: Perm,
-    /// We're invariant in `T` to avoid surprises. We can only soundly be covariant in `T` for some
-    /// values of `Perm`, which seems hard to express, if at all possible.
-    phantom: PhantomData<*mut T>,
+    /// Use a `VPtr` internally to track permissions.
+    vptr: VPtr<Perm, T>,
 }
 
 /// Permission token on a pointer.
 /// Safety: must be transmutable with `PhantomData`.
 pub unsafe trait PtrPerm: Sized {
     /// Unsafely create a new permission token.
-    /// Safety: ensure the permission is correct.
+    /// Safety: ensure the permission is correct for the pointee it will get attached to.
     unsafe fn new() -> Self;
 }
 
 impl<Perm: PtrPerm, T> Ptr<Perm, T> {
-    pub unsafe fn new(ptr: NonNull<T>, perm: Perm) -> Self {
-        Self {
-            ptr,
-            perm,
-            phantom: PhantomData,
-        }
+    pub unsafe fn new_with_perm(ptr: NonNull<T>, perm: Perm) -> Self {
+        unsafe { Self::new_with_vptr(ptr, VPtr::new(perm)) }
     }
-
-    /// Helper.
-    unsafe fn with_perm<'this, NewPerm>(self, perm: NewPerm) -> Ptr<NewPerm, T>
-    where
-        Perm: IsPointsTo<'this>,
-        NewPerm: IsPointsTo<'this>,
-    {
-        unsafe { Ptr::new(self.ptr, perm) }
+    pub unsafe fn new_with_vptr(ptr: NonNull<T>, vptr: VPtr<Perm, T>) -> Self {
+        Self { ptr, vptr }
     }
 
     /// Turn this into a virtual pointer with the same permission.
     pub fn into_virtual(self) -> VPtr<Perm, T> {
-        unsafe { VPtr::new(self.perm) }
+        self.vptr
     }
-    // /// Turn this into a virtual pointer with the same permission.
-    // pub fn as_virtual(&self) -> &VPtr<Perm, T> {
-    //     unsafe { VPtr::new() }
-    // }
-
-    /// Transform the contained permission.
-    pub fn pack_perm<'this>(ptr: Ptr<PointsTo<'this, Perm::Access, Perm::Pred>, T>) -> Self
+    /// Turn this into a virtual pointer with the same permission.
+    pub fn as_virtual(&self) -> &VPtr<Perm, T> {
+        &self.vptr
+    }
+    /// Turn this into a virtual pointer with the same permission.
+    pub fn as_virtual_mut(&mut self) -> &mut VPtr<Perm, T> {
+        &mut self.vptr
+    }
+    /// Replaces the permission of this pointer with that of the given virtual pointer.
+    pub fn with_virtual<'this, NewPerm, U>(self, vptr: VPtr<NewPerm, U>) -> Ptr<NewPerm, U>
     where
         Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this>,
     {
-        unsafe { Ptr::new(ptr.ptr, Perm::from_points_to(ptr.perm)) }
+        // Using and casting this pointer is fine because `IsPointsTo` guarantees that both are
+        // pointing to the same place.
+        unsafe { Ptr::new_with_vptr(self.ptr.cast(), vptr) }
     }
 
     pub fn as_non_null(&self) -> NonNull<T> {
         self.ptr
     }
 
-    pub unsafe fn cast_perm<NewPerm: PtrPerm>(self) -> Ptr<NewPerm, T> {
-        Ptr {
-            ptr: self.ptr,
-            perm: unsafe { NewPerm::new() },
-            phantom: PhantomData,
-        }
-    }
     pub unsafe fn cast_ty<U>(self) -> Ptr<Perm, U> {
-        Ptr {
-            ptr: self.ptr.cast(),
-            perm: self.perm,
-            phantom: PhantomData,
-        }
+        unsafe { Ptr::new_with_vptr(self.ptr.cast(), self.vptr.cast_ty()) }
     }
     pub unsafe fn cast_access<'this, NewPerm>(self) -> Ptr<NewPerm, T>
     where
         Perm: IsPointsTo<'this>,
         NewPerm: IsPointsTo<'this, Pred = Perm::Pred>,
     {
-        unsafe { self.cast_perm() }
+        self.map_virtual(|v| unsafe { v.cast_access() })
     }
     pub unsafe fn cast_pred<'this, NewPerm>(self) -> Ptr<NewPerm, T>
     where
         Perm: IsPointsTo<'this>,
         NewPerm: IsPointsTo<'this, Access = Perm::Access>,
     {
-        unsafe { self.cast_perm() }
+        self.map_virtual(|v| unsafe { v.cast_pred() })
     }
 
-    pub unsafe fn unsafe_copy(&self) -> Self {
-        unsafe { Ptr::new(self.ptr, Perm::new()) }
+    /// Unsafely copy this pointer, duplicating its permission.
+    #[expect(unused)]
+    pub unsafe fn unsafe_copy<'this>(&self) -> Self
+    where
+        Perm: IsPointsTo<'this>,
+    {
+        self.map_virtual_ref(|v| unsafe { v.unsafe_copy() })
     }
-
     /// Copy the pointer. The copied pointer has no permissions.
     pub fn copy<'this>(&self) -> Ptr<PointsTo<'this>, T>
     where
         Perm: IsPointsTo<'this>,
     {
-        unsafe { Ptr::new(self.as_non_null(), self.perm.as_permissionless()) }
+        // Note: can't implement on terms of `map_virtual_ref` because `map_virtual_ref` is
+        // implemented in terms of `copy`.
+        unsafe { Ptr::new_with_vptr(self.ptr, self.vptr.copy()) }
     }
     pub fn copy_read<'this, 'a>(&'a self) -> Ptr<Read<'this, 'a, Perm::Pred>, T>
     where
         Perm: HasRead<'this>,
     {
-        unsafe { self.copy().with_perm(self.perm.as_read()) }
+        self.map_virtual_ref(|v| v.copy_read())
     }
     pub fn copy_mut<'this, 'a>(&'a mut self) -> Ptr<Mut<'this, 'a, Perm::Pred>, T>
     where
         Perm: HasMut<'this>,
     {
-        unsafe { self.copy().with_perm(self.perm.as_mut()) }
+        self.map_virtual_mut(|v| v.copy_mut())
     }
 
+    pub fn drop_target_perms<'this>(self) -> Ptr<Perm, T::Erased>
+    where
+        Perm: IsPointsTo<'this>,
+        T: EraseNestedPerms,
+    {
+        self.map_virtual(|v| v.drop_target_perms())
+    }
     pub fn weak_ref<'this>(&self) -> Ptr<PointsTo<'this>, T::Erased>
     where
         Perm: IsPointsTo<'this>,
@@ -134,20 +120,45 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         self.copy().drop_target_perms()
     }
 
-    pub fn drop_target_perms(self) -> Ptr<Perm, T::Erased>
+    pub fn map_virtual<'this, NewPerm, U>(
+        self,
+        f: impl FnOnce(VPtr<Perm, T>) -> VPtr<NewPerm, U>,
+    ) -> Ptr<NewPerm, U>
     where
-        T: EraseNestedPerms,
+        Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this>,
     {
-        T::erase_nested_perms(self)
+        self.copy().with_virtual(f(self.into_virtual()))
+    }
+    /// Transform the contained permission.
+    pub fn map_virtual_ref<'this, 'a, NewPerm>(
+        &'a self,
+        f: impl FnOnce(&'a VPtr<Perm, T>) -> VPtr<NewPerm, T>,
+    ) -> Ptr<NewPerm, T>
+    where
+        Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this>,
+    {
+        self.copy().with_virtual(f(self.as_virtual()))
+    }
+    /// Transform the contained permission.
+    pub fn map_virtual_mut<'this, 'a, NewPerm>(
+        &'a mut self,
+        f: impl FnOnce(&'a mut VPtr<Perm, T>) -> VPtr<NewPerm, T>,
+    ) -> Ptr<NewPerm, T>
+    where
+        Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this>,
+    {
+        self.copy().with_virtual(f(self.as_virtual_mut()))
     }
 
-    #[expect(unused)]
-    pub fn erase_pred<'this>(self) -> Ptr<PointsTo<'this, Perm::Access>, T>
+    /// Transform the contained permission.
+    pub fn pack_perm<'this>(ptr: Ptr<PointsTo<'this, Perm::Access, Perm::Pred>, T>) -> Self
     where
         Perm: IsPointsTo<'this>,
     {
-        let (ptr, perm) = self.split();
-        ptr.set_perm(perm.drop_pred())
+        ptr.map_virtual(|v| VPtr::pack_perm(v))
     }
 
     /// Compare two pointers for equality. Because of the `HasAllocated` constraint, the target can
@@ -170,7 +181,8 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
 }
 
 impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
-    /// Read a pointer behind a pointer, taking the permissions with it as much as possible.
+    /// Read a pointer behind a pointer. The permission that can be extracted that way is capped by
+    /// the permission of the outer pointer; see the `AccessThrough` trait.
     pub fn read_nested_ptr<'this, 'inner>(
         self,
     ) -> (
@@ -182,14 +194,14 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
         InnerPerm: IsPointsTo<'inner>,
         InnerPerm::Access: AccessThrough<OuterPerm::Access>,
     {
-        // Safety: by the invariant of `AccessThrough`, it's ok to get that pointer out.
-        let inner = self
-            .deref()
-            .as_ref()
-            .map(|ptr| unsafe { ptr.unsafe_copy().cast_access() });
-        // Safety: we're downgrading a `IsPointsTo<'a>` to a `PointsTo<'a>`, which is fine even without
-        // any particular permissions on `ptr`.
-        let ptr = unsafe { self.cast_ty() };
+        // Copy the pointers.
+        let inner = self.deref().as_ref().map(|ptr| ptr.copy());
+        let permissionless_outer = self.copy();
+        // Extract the permissions.
+        let (vouter, vinner) = self.into_virtual().read_nested_ptr();
+        // Reassemble.
+        let inner = inner.map(|inner| inner.with_virtual(vinner));
+        let ptr = permissionless_outer.with_virtual(vouter);
         (ptr, inner)
     }
 
@@ -208,19 +220,18 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
         ptr
     }
 
-    /// Like `write_nested_ptr` but does not write to memory. For that reason, there is an
-    /// additional constraint that the virtual pointer must point to the same thing as the pointer
-    /// it is replacing.
+    /// The opposite of `read_nested_ptr`: writes a permission to a pointer behind a pointer. This
+    /// does not write to memory, hence cannot be used to change the address of the inner pointer.
     pub fn write_nested_ptr_perm<'this, 'inner, NewInnerPerm>(
         self,
-        _new: VPtr<NewInnerPerm, T>,
+        new: VPtr<NewInnerPerm, T>,
     ) -> Ptr<OuterPerm, Option<Ptr<NewInnerPerm, T>>>
     where
         OuterPerm: HasOwn<'this>,
         InnerPerm: IsPointsTo<'inner>,
         NewInnerPerm: IsPointsTo<'inner>,
     {
-        unsafe { self.cast_ty() }
+        self.map_virtual(|v| v.write_nested_ptr_perm(new))
     }
 }
 
@@ -232,15 +243,6 @@ where
     pub fn unpack_target_lt<R>(self, f: impl for<'this> FnOnce(Ptr<Perm, T::Of<'this>>) -> R) -> R {
         // Safety: `ExistsLt` is `repr(transparent)`
         f(unsafe { self.cast_ty() })
-    }
-}
-
-impl<Perm: PtrPerm, T> VPtr<Perm, T> {
-    pub unsafe fn new(perm: Perm) -> Self {
-        Self {
-            perm,
-            phantom: PhantomData,
-        }
     }
 }
 
