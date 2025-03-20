@@ -70,9 +70,36 @@ where
     where
         PtrPerm: HasRead<'this>,
     {
-        let sub_ptr = unsafe { Self::field_raw(self.as_non_null(), tok) };
-        let wand = unsafe { Wand::new(self.into_virtual().cast_ty()).map() };
-        let ptr = unsafe { Ptr::new_with_perm(sub_ptr, PointsTo::new()) };
+        let this = self.copy();
+        self.into_virtual()
+            .get_field_virt::<PtrPerm, NewFieldPerm>(tok)
+            .unpack_lt(|(field_vptr, wand)| {
+                let field_ptr = unsafe { Self::field_raw(this.as_non_null(), tok) };
+                let field_ptr = unsafe { Ptr::new_with_vptr(field_ptr, field_vptr) };
+                ExistsLt::pack_lt((field_ptr, wand))
+            })
+    }
+
+    /// Given a pointer to `self`, get a pointer to the field, with the same permissions. While the
+    /// new pointer is active, the permissions to `self` are inaccessible (because it was moved
+    /// out). The original permissions can be recovered by relinquishing the subpointer using the
+    /// returned wand.
+    // TODO: could (should?) require empty pointee pred
+    fn get_field_virt<'this, 'field, PtrPerm, NewFieldPerm: self::PtrPerm>(
+        self: VPtr<PtrPerm, Self>,
+        _tok: FieldTok,
+    ) -> ExistsLt!(<'sub> = (
+            VPtr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
+            Wand<
+                VPtr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<NewFieldPerm, Self::FieldTy>>>,
+                VPtr<PtrPerm, Self::ChangePerm<NewFieldPerm>>
+            >,
+       ))
+    where
+        PtrPerm: HasRead<'this>,
+    {
+        let wand = unsafe { Wand::new(self.cast_ty()).map() };
+        let ptr = unsafe { VPtr::new(PointsTo::new()) };
         ExistsLt::pack_lt((ptr, wand))
     }
 
@@ -140,13 +167,34 @@ where
         FieldPerm: IsPointsTo<'field>,
         NewPerm: IsPointsTo<'field>,
     {
-        let this = self.copy();
-        self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
-            // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
+        self.map_virtual(|v| v.write_field_permission_virt(tok, new))
+    }
+    fn write_field_permission_virt<'this, 'field, PtrPerm, NewPerm>(
+        self: VPtr<PtrPerm, Self>,
+        tok: FieldTok,
+        new: VPtr<NewPerm, Self::FieldTy>,
+    ) -> VPtr<PtrPerm, Self::ChangePerm<NewPerm>>
+    where
+        PtrPerm: HasOwn<'this>,
+        FieldPerm: IsPointsTo<'field>,
+        NewPerm: IsPointsTo<'field>,
+    {
+        self.get_field_virt(tok).unpack_lt(|(ptr_to_field, wand)| {
+            // ptr_to_field: VPtr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
             let ptr_to_field = ptr_to_field.write_nested_ptr_perm(new);
-            let ptr = this.with_virtual(wand.apply(ptr_to_field.into_virtual()));
-            // ptr: Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
+            let ptr = wand.apply(ptr_to_field);
+            // ptr: VPtr<PtrPerm, Self::ChangePerm<NewPerm>>,
             ptr
         })
+    }
+    fn drop_field_permission<'this, 'field, PtrPerm>(
+        self: VPtr<PtrPerm, Self>,
+        tok: FieldTok,
+    ) -> VPtr<PtrPerm, Self::ChangePerm<PointsTo<'field>>>
+    where
+        PtrPerm: HasOwn<'this>,
+        FieldPerm: IsPointsTo<'field>,
+    {
+        self.write_field_permission_virt(tok, VPtr::permissionless())
     }
 }

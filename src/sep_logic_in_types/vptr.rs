@@ -128,6 +128,35 @@ impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     }
 }
 
+impl<'this, T> VPtr<PointsTo<'this>, T> {
+    // TODO: use this more
+    pub fn permissionless() -> Self {
+        unsafe { VPtr::new(PointsTo::new()) }
+    }
+}
+
+impl<Perm: PtrPerm, T> VPtr<Perm, ExistsLt<T>>
+where
+    T: PackLt,
+{
+    /// Give a name to the hidden lifetime in a pointer target.
+    pub fn unpack_target_lt<R>(
+        self,
+        f: impl for<'this> FnOnce(VPtr<Perm, T::Of<'this>>) -> R,
+    ) -> R {
+        // Safety: `ExistsLt` is `repr(transparent)`
+        f(unsafe { self.cast_ty() })
+    }
+}
+
+/// Hide the lifetime in a pointer target.
+pub fn vpack_target_lt<'this, Perm: PtrPerm, T: PackLt>(
+    ptr: VPtr<Perm, T::Of<'this>>,
+) -> VPtr<Perm, ExistsLt<T>> {
+    // Safety: `ExistsLt` is `repr(transparent)`
+    unsafe { ptr.cast_ty() }
+}
+
 impl<Perm, T> Receiver for VPtr<Perm, T> {
     type Target = T;
 }

@@ -221,20 +221,6 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
         *ptr.deref_mut() = new;
         ptr
     }
-
-    /// The opposite of `read_nested_ptr`: writes a permission to a pointer behind a pointer. This
-    /// does not write to memory, hence cannot be used to change the address of the inner pointer.
-    pub fn write_nested_ptr_perm<'this, 'inner, NewInnerPerm>(
-        self,
-        new: VPtr<NewInnerPerm, T>,
-    ) -> Ptr<OuterPerm, Option<Ptr<NewInnerPerm, T>>>
-    where
-        OuterPerm: HasOwn<'this>,
-        InnerPerm: IsPointsTo<'inner>,
-        NewInnerPerm: IsPointsTo<'inner>,
-    {
-        self.map_virtual(|v| v.write_nested_ptr_perm(new))
-    }
 }
 
 impl<'this, 'a, T> Ptr<Read<'this, 'a>, T> {
