@@ -41,11 +41,15 @@ where
 
     #[expect(unused)]
     fn field_ref(&self, tok: FieldTok) -> &Option<Ptr<FieldPerm, Self::FieldTy>> {
-        unsafe { Self::field_raw(NonNull::from(self), tok).as_ref() }
+        Ptr::from_ref(self)
+            .get_field::<_, NoPerm>(tok)
+            .unpack_lt(|(ptr_to_field, _)| ptr_to_field.deref_exact())
     }
     #[expect(unused)]
     fn field_mut(&mut self, tok: FieldTok) -> &mut Option<Ptr<FieldPerm, Self::FieldTy>> {
-        unsafe { Self::field_raw(NonNull::from(self), tok).as_mut() }
+        Ptr::from_mut(self)
+            .get_field::<_, NoPerm>(tok)
+            .unpack_lt(|(ptr_to_field, _)| ptr_to_field.into_deref_mut())
     }
 
     /// Given a pointer to `self`, get a pointer to the field, with the same permissions. While the

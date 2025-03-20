@@ -236,6 +236,17 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     }
 }
 
+impl<'this, 'a, T> Ptr<Read<'this, 'a>, T> {
+    pub fn from_ref(r: &'a T) -> Self {
+        unsafe { Ptr::new_with_perm(r.into(), Read::new()) }
+    }
+}
+impl<'this, 'a, T> Ptr<Mut<'this, 'a>, T> {
+    pub fn from_mut(r: &'a mut T) -> Self {
+        unsafe { Ptr::new_with_perm(r.into(), Mut::new()) }
+    }
+}
+
 impl<Perm: PtrPerm, T> Ptr<Perm, ExistsLt<T>>
 where
     T: PackLt,
