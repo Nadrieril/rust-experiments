@@ -114,6 +114,7 @@ impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     /// The opposite of `read_nested_ptr`: writes a permission to a pointer behind a (virtual)
     /// pointer. This does not write to memory, hence cannot be used to change the address of the
     /// inner pointer.
+    // TODO: shouldn't this invalidate a potential pointee predicate in `OuterPerm`?
     pub fn write_nested_ptr_perm<'this, 'inner, NewInnerPerm>(
         self,
         _new: VPtr<NewInnerPerm, T>,

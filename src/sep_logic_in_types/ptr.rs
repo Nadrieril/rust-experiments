@@ -206,6 +206,7 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     }
 
     /// Write to a pointer behind a pointer.
+    // TODO: shouldn't this invalidate a potential pointee predicate in `OuterPerm`?
     pub fn write_nested_ptr<'this, NewInnerPerm>(
         self,
         new: Option<Ptr<NewInnerPerm, T>>,
