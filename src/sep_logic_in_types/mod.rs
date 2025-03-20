@@ -36,8 +36,8 @@
 // - `PointsTo<'this>`: used as anchor to move permissions to/from;
 // - `PointsTo<'this, Access>`: used to read & write;
 // - `PointsTo<'this, Access, Pred>`: moved around and packed-unpacked.
-// If I use `'static` as the impossible/unknown pointer, could get rid of `NoPerm` and inline
-// `PointsTo` inside `Ptr`.
+// If I use `'static` as the unknown pointer, could get rid of `NoPerm` and inline
+// `PointsTo` inside `Ptr`. Ah but `'static` already means impossible.
 // -> not sure enough of my API for that. need to try doubly-linked tree first.
 
 mod fields;

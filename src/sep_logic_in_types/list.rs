@@ -299,6 +299,7 @@ mod list_helpers {
 // impl<'this, 'prev, 'last> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev, 'last> {
 //     type Unpacked = Node<PointsTo<'prev>, (PackLt!(Own<'_, NodeStateFwd<'_, 'this, 'last>>, IfNull<Eq<'this, 'last>>))>;
 // }
+// make `NullablePtr` and `IfNull` predicates?
 // this isn't enough, I need to know that from the current node I can deduce a `Own<'last, NodeStateBwd<'last, 'static>>`.
 // need a wand. good thing: wand can be on permissions directly, no need for ptrs.
 // Wand(Own<'this, NodeStateFwd<'this, 'static, 'last>) -> (Own<'last, NodeStateBwd<'last, 'static>>, same thing backwards)
@@ -311,23 +312,6 @@ mod list_helpers {
 // remove nodes while preserving wands?
 // - how to handle existential (un)packing? once packed, the predicate is basically meaningless. is
 // it enough to keep the `'this` unpacked?
-//
-// also starting to feel like I can move the permission tokens out of pointers.
-// struct Node<'prev, 'next, PrevNone = (), NextNone = ()> {
-//     prev: Result<Ptr<'prev, ExistsLt<'a, 'b> Node<'a, 'b>>, PrevNone>,
-//     next: Result<Ptr<'next, ExistsLt<'a, 'b> Node<'a, 'b>>, NextNone>,
-// }
-// impl<'this, 'prev, 'next, 'last> PackedPredicate<'this, Node<'prev, 'next>> for NodeStateFwd<'this, 'prev, 'last> {
-//     type Unpacked = Node<(), Eq<'this, 'last>>;
-//     type ExtraPreds = Own<'next, NodeStateFwd<'next, 'this, 'last>>;
-//     // IfNull<'next, Eq<'this, 'last>>
-// }
-// problem with this: no way to talk about a list of ptrs. need `Vec<Ptr<PackLt!()>>` to mean "for
-// each ptr, exists a brand".
-// -> tbh, could make `ErasedPtr` that can be unerased.
-// ergo: keep current thing, but allow taking predicates directly.
-// -> makes pairs of preds easy to handle
-// make `NullablePtr` and `IfNull` predicate.
 pub struct List(Option<NonEmptyList<'static>>);
 
 impl List {
@@ -360,7 +344,8 @@ impl List {
                     let ptr = pack_target_lt(ptr);
                     let ptr = pack_target_lt(ptr);
                     let ptr = NodeStateCursor::pack(ptr);
-                    ListCursorInner { ptr }.pack_lt()
+                    let first = ptr.copy();
+                    ListCursorInner { ptr, first }.pack_lt()
                 })
             })
         });
@@ -466,12 +451,16 @@ impl<'a> Iterator for ListIterMut<'a> {
     }
 }
 
-struct ListCursorInner<'this> {
+type ErasedListCursorInner = ExistsLt!(<'this, 'first> = ListCursorInner<'this, 'first>);
+struct ListCursorInner<'this, 'first> {
     /// Pointer to a node.
     ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>,
+    /// Pointer to the start of the list.
+    first: Ptr<PointsTo<'first>, Node>,
+    // rewind: Wand<VPtr<Own<'this, ..>>, VPtr<Own<'first, ..>>>
 }
 
-impl<'this> ListCursorInner<'this> {
+impl<'this, 'first> ListCursorInner<'this, 'first> {
     pub fn val(&self) -> &usize {
         &self.ptr.deref().val
     }
@@ -480,8 +469,8 @@ impl<'this> ListCursorInner<'this> {
     }
 
     /// Helper.
-    fn pack_lt(self) -> ExistsLt!(ListCursorInner<'_>) {
-        ExistsLt::pack_lt(self)
+    fn pack_lt(self) -> ErasedListCursorInner {
+        ExistsLt::pack_lt(ExistsLt::pack_lt(self))
     }
 
     /// Helper: split off the forward list that includes the current node and the rest.
@@ -538,7 +527,10 @@ impl<'this> ListCursorInner<'this> {
             };
             let ptr = Self::unsplit(ptr, Some(next));
             // ptr: Ptr<ExistsLt!(Own<'_, NodeStateCursor<'_>>), Node>
-            Self { ptr }
+            Self {
+                ptr,
+                first: self.first,
+            }
         })
     }
 
@@ -549,13 +541,16 @@ impl<'this> ListCursorInner<'this> {
                 None => (None, None),
             };
             let ptr = Self::unsplit(ptr, next);
-            let this = Self { ptr };
+            let this = Self {
+                ptr,
+                first: self.first,
+            };
             (this, val)
         })
     }
 
     /// Advance the cursor. Returns `Err(self)` if the cursor could not be advanced.
-    pub fn next(self) -> Result<ExistsLt!(ListCursorInner<'_>), Self> {
+    pub fn next(self) -> Result<ErasedListCursorInner, Self> {
         if self.ptr.deref().next.is_none() {
             return Err(self);
         };
@@ -653,13 +648,17 @@ impl<'this> ListCursorInner<'this> {
                     // Unexpand permissions
                     let next = NodeStateCursor::pack(next);
                     // next: Ptr<Own<'next, NodeStateCursor<'next>>, Node>
-                    Ok(ExistsLt::pack_lt(ListCursorInner { ptr: next }))
+                    Ok((ListCursorInner {
+                        ptr: next,
+                        first: self.first,
+                    })
+                    .pack_lt())
                 })
             })
         })
     }
     /// Move the cursor backwards. Returns `Err(self)` if the cursor could not be moved.
-    pub fn prev(self) -> Result<ExistsLt!(ListCursorInner<'_>), Self> {
+    pub fn prev(self) -> Result<ErasedListCursorInner, Self> {
         if self.ptr.deref().prev.is_none() {
             return Err(self);
         };
@@ -687,7 +686,11 @@ impl<'this> ListCursorInner<'this> {
                     // Unexpand permissions
                     let ptr = NodeStateCursor::pack(ptr);
                     // Pack lifetime
-                    Ok(ExistsLt::pack_lt(ListCursorInner { ptr }))
+                    Ok((ListCursorInner {
+                        ptr,
+                        first: self.first,
+                    })
+                    .pack_lt())
                 })
             })
         })
@@ -709,7 +712,7 @@ impl<'this> ListCursorInner<'this> {
 }
 
 pub struct ListCursor<'a> {
-    inner: Option<ExistsLt!(ListCursorInner<'_>)>,
+    inner: Option<ErasedListCursorInner>,
     /// Borrow of the original list. While the cursor exists, the list thinks it's empty. Call
     /// `restore_list` to restore the list to the expected state.
     /// This is only `None` if we moved the value out, to prevent drop.
@@ -720,12 +723,12 @@ impl ListCursor<'_> {
     pub fn val(&self) -> Option<&usize> {
         self.inner
             .as_ref()
-            .map(|inner| inner.unpack_lt_ref(|inner| inner.val()))
+            .map(|inner| inner.unpack_lt_ref(|inner| inner.unpack_lt_ref(|inner| inner.val())))
     }
     pub fn val_mut(&mut self) -> Option<&mut usize> {
         self.inner
             .as_mut()
-            .map(|inner| inner.unpack_lt_mut(|inner| inner.val_mut()))
+            .map(|inner| inner.unpack_lt_mut(|inner| inner.unpack_lt_mut(|inner| inner.val_mut())))
     }
 
     /// Restore the borrowed list after the cursor modifications.
@@ -746,13 +749,16 @@ impl ListCursor<'_> {
             return;
         };
         inner.unpack_lt(|inner| {
-            *list = inner.into_list();
+            inner.unpack_lt(|inner| {
+                *list = inner.into_list();
+            })
         });
     }
 
     pub fn insert_after(mut self, val: usize) -> Self {
         if let Some(inner) = self.inner.take() {
-            let inner = inner.unpack_lt(|inner| inner.insert_after(val).pack_lt());
+            let inner =
+                inner.unpack_lt(|inner| inner.unpack_lt(|inner| inner.insert_after(val).pack_lt()));
             Self {
                 inner: Some(inner),
                 list: self.list.take(),
@@ -768,12 +774,14 @@ impl ListCursor<'_> {
     pub fn remove_after(mut self) -> (Self, Option<usize>) {
         if let Some(inner) = self.inner.take() {
             inner.unpack_lt(|inner| {
-                let (inner, val) = inner.remove_after();
-                let this = Self {
-                    inner: Some(inner.pack_lt()),
-                    list: self.list.take(),
-                };
-                (this, val)
+                inner.unpack_lt(|inner| {
+                    let (inner, val) = inner.remove_after();
+                    let this = Self {
+                        inner: Some(inner.pack_lt()),
+                        list: self.list.take(),
+                    };
+                    (this, val)
+                })
             })
         } else {
             (self, None)
@@ -783,15 +791,17 @@ impl ListCursor<'_> {
     /// Advance the cursor. Returns `Err(self)` if the cursor could not be advanced.
     pub fn next(mut self) -> Result<Self, Self> {
         if let Some(inner) = self.inner.take() {
-            inner.unpack_lt(|inner| match inner.next() {
-                Ok(inner) => Ok(Self {
-                    inner: Some(inner),
-                    list: self.list.take(),
-                }),
-                Err(inner) => Err(Self {
-                    inner: Some(inner.pack_lt()),
-                    list: self.list.take(),
-                }),
+            inner.unpack_lt(|inner| {
+                inner.unpack_lt(|inner| match inner.next() {
+                    Ok(inner) => Ok(Self {
+                        inner: Some(inner),
+                        list: self.list.take(),
+                    }),
+                    Err(inner) => Err(Self {
+                        inner: Some(inner.pack_lt()),
+                        list: self.list.take(),
+                    }),
+                })
             })
         } else {
             Err(self)
@@ -800,15 +810,17 @@ impl ListCursor<'_> {
     /// Move the cursor backwards. Returns `Err(self)` if the cursor could not be moved.
     pub fn prev(mut self) -> Result<Self, Self> {
         if let Some(inner) = self.inner.take() {
-            inner.unpack_lt(|inner| match inner.prev() {
-                Ok(inner) => Ok(Self {
-                    inner: Some(inner),
-                    list: self.list.take(),
-                }),
-                Err(inner) => Err(Self {
-                    inner: Some(inner.pack_lt()),
-                    list: self.list.take(),
-                }),
+            inner.unpack_lt(|inner| {
+                inner.unpack_lt(|inner| match inner.prev() {
+                    Ok(inner) => Ok(Self {
+                        inner: Some(inner),
+                        list: self.list.take(),
+                    }),
+                    Err(inner) => Err(Self {
+                        inner: Some(inner.pack_lt()),
+                        list: self.list.take(),
+                    }),
+                })
             })
         } else {
             Err(self)
