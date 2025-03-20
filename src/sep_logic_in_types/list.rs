@@ -253,7 +253,7 @@ mod list_helpers {
         // brand before returning.
         type ToAlloc<'prev> =
             PackLt!(<NodeStateFwd<'_, 'prev> as PackedPredicate<'_, Node>>::Unpacked);
-        Ptr::new_uninit_cyclic::<ToAlloc<'_>, _>(|new| {
+        Ptr::new_uninit::<ToAlloc<'_>>().unpack_lt(|new| {
             // Create a new node.
             let node = match next_or_prev {
                 Ok(next) => {

@@ -249,20 +249,12 @@ mod uninit_owned {
     pub type UninitOwned<'this, Pred = ()> = PointsTo<'this, PUninitOwned, Pred>;
 
     impl Ptr<(), ()> {
-        #[expect(unused)]
-        pub fn new_uninit<T>() -> ExistsLt!(Ptr<UninitOwned<'_>, T>) {
-            Ptr::new_uninit_cyclic::<PackLt!(T), _>(|ptr| ExistsLt::pack_lt(ptr))
-        }
-
-        /// Alloc a non-initialized location that can contain a pointer to itself. This
-        /// self-reference will have to be hidden away before returning of course.
-        pub fn new_uninit_cyclic<T: PackLt, R>(
-            f: impl for<'this> FnOnce(Ptr<UninitOwned<'this>, T::Of<'this>>) -> R,
-        ) -> R {
-            let non_null =
-                Box::into_non_null(Box::<MaybeUninit<T::Of<'_>>>::new_uninit()).cast::<T::Of<'_>>();
+        /// Alloc a non-initialized location that can contain a pointer to itself.
+        pub fn new_uninit<T: PackLt>() -> ExistsLt!(Ptr<UninitOwned<'_>, T::Of<'_>>) {
+            let b: Box<MaybeUninit<T::Of<'_>>> = Box::new_uninit();
+            let non_null = Box::into_non_null(b).cast::<T::Of<'_>>();
             let ptr = unsafe { Ptr::new_with_perm(non_null, UninitOwned::new()) };
-            f(ptr)
+            ExistsLt::pack_lt(ptr)
         }
     }
 
