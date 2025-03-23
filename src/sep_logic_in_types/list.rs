@@ -346,36 +346,7 @@ impl List {
                     let ptr = pack_target_lt(ptr);
                     let ptr = NodeStateCursor::pack(ptr);
                     let first = ptr.copy();
-                    fn rewind<'this>(
-                        vptr: VPtr<Own<'this, NodeStateCursor<'this>>, Node>,
-                    ) -> ExistsLt!(VPtr<Own<'this, NodeStateFwd<'this, '_>>, Node>)
-                    {
-                        // vptr: VPtr<Own<'this, NodeStateCursor<'this>>, Node>,
-                        let vptr = NodeStateCursor::unpack_virt(vptr);
-                        vptr.unpack_target_lt(|vptr| {
-                            vptr.unpack_target_lt(|vptr| {
-                                // vptr: VPtr<Own<'this>, Node<
-                                //     Own<'prev, NodeStateBwd<'prev, 'this>>,
-                                //     Own<'next, NodeStateFwd<'next, 'this>>>
-                                // >,
-                                let vptr = vptr.drop_field_permission(FPrev);
-                                // vptr: VPtr<Own<'this>, Node<
-                                //     PointsTo<'prev>,
-                                //     Own<'next, NodeStateFwd<'next, 'this>>>
-                                // >,
-                                let vptr = vpack_target_lt(vptr);
-                                let vptr = NodeStateFwd::pack_virt(vptr);
-                                // vptr: VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-                                ExistsLt::pack_lt(vptr)
-                            })
-                        })
-                    }
-                    ListCursorInner {
-                        ptr,
-                        first,
-                        rewind: Some(Box::new(rewind)),
-                    }
-                    .pack_lt()
+                    ListCursorInner { ptr, first }.pack_lt()
                 })
             })
         });
@@ -487,14 +458,6 @@ struct ListCursorInner<'this, 'first> {
     ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>,
     /// Pointer to the start of the list.
     first: Ptr<PointsTo<'first>, Node>,
-    /// Wand to rewind to the start.
-    rewind: Option<
-        Box<
-            dyn FnOnce(
-                VPtr<Own<'this, NodeStateCursor<'this>>, Node>,
-            ) -> ExistsLt!(VPtr<Own<'first, NodeStateFwd<'first, '_>>, Node>),
-        >,
-    >,
 }
 
 impl<'this, 'first> ListCursorInner<'this, 'first> {
@@ -567,7 +530,6 @@ impl<'this, 'first> ListCursorInner<'this, 'first> {
             Self {
                 ptr,
                 first: self.first,
-                rewind: self.rewind,
             }
         })
     }
@@ -582,7 +544,6 @@ impl<'this, 'first> ListCursorInner<'this, 'first> {
             let this = Self {
                 ptr,
                 first: self.first,
-                rewind: self.rewind,
             };
             (this, val)
         })
@@ -688,39 +649,9 @@ impl<'this, 'first> ListCursorInner<'this, 'first> {
                     // Unexpand permissions
                     let next = NodeStateCursor::pack(next);
                     // next: Ptr<Own<'next, NodeStateCursor<'next>>, Node>
-                    fn rewind<'this, 'oldthis, R>(
-                        f: impl FnOnce(VPtr<Own<'oldthis, NodeStateCursor<'oldthis>>, Node>) -> R,
-                    ) -> Box<dyn FnOnce(VPtr<Own<'this, NodeStateCursor<'this>>, Node>) -> R>
-                    {
-                        Box::new(|vptr| {
-                            //
-                            todo!()
-                        })
-                        // // vptr: VPtr<Own<'this, NodeStateCursor<'this>>, Node>,
-                        // let vptr = NodeStateCursor::unpack_virt(vptr);
-                        // vptr.unpack_target_lt(|vptr| {
-                        //     vptr.unpack_target_lt(|vptr| {
-                        //         // vptr: VPtr<Own<'this>, Node<
-                        //         //     Own<'prev, NodeStateBwd<'prev, 'this>>,
-                        //         //     Own<'next, NodeStateFwd<'next, 'this>>>
-                        //         // >,
-                        //         let vptr = vptr.drop_field_permission(FPrev);
-                        //         // vptr: VPtr<Own<'this>, Node<
-                        //         //     PointsTo<'prev>,
-                        //         //     Own<'next, NodeStateFwd<'next, 'this>>>
-                        //         // >,
-                        //         let vptr = vpack_target_lt(vptr);
-                        //         let vptr = NodeStateFwd::pack_virt(vptr);
-                        //         // vptr: VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-                        //         ExistsLt::pack_lt(vptr)
-                        //     })
-                        // })
-                    }
                     Ok((ListCursorInner {
                         ptr: next,
                         first: self.first,
-                        // rewind: None,
-                        rewind: self.rewind.map(|rew| rewind(rew)),
                     })
                     .pack_lt())
                 })
@@ -756,39 +687,9 @@ impl<'this, 'first> ListCursorInner<'this, 'first> {
                     // Unexpand permissions
                     let ptr = NodeStateCursor::pack(ptr);
                     // Pack lifetime
-                    fn rewind<'this, 'oldthis, R>(
-                        f: impl FnOnce(VPtr<Own<'oldthis, NodeStateCursor<'oldthis>>, Node>) -> R,
-                    ) -> Box<dyn FnOnce(VPtr<Own<'this, NodeStateCursor<'this>>, Node>) -> R>
-                    {
-                        Box::new(|vptr| {
-                            //
-                            todo!()
-                        })
-                        // // vptr: VPtr<Own<'this, NodeStateCursor<'this>>, Node>,
-                        // let vptr = NodeStateCursor::unpack_virt(vptr);
-                        // vptr.unpack_target_lt(|vptr| {
-                        //     vptr.unpack_target_lt(|vptr| {
-                        //         // vptr: VPtr<Own<'this>, Node<
-                        //         //     Own<'prev, NodeStateBwd<'prev, 'this>>,
-                        //         //     Own<'next, NodeStateFwd<'next, 'this>>>
-                        //         // >,
-                        //         let vptr = vptr.drop_field_permission(FPrev);
-                        //         // vptr: VPtr<Own<'this>, Node<
-                        //         //     PointsTo<'prev>,
-                        //         //     Own<'next, NodeStateFwd<'next, 'this>>>
-                        //         // >,
-                        //         let vptr = vpack_target_lt(vptr);
-                        //         let vptr = NodeStateFwd::pack_virt(vptr);
-                        //         // vptr: VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-                        //         ExistsLt::pack_lt(vptr)
-                        //     })
-                        // })
-                    }
                     Ok((ListCursorInner {
                         ptr,
                         first: self.first,
-                        // rewind: None,
-                        rewind: self.rewind.map(|rew| rewind(rew)),
                     })
                     .pack_lt())
                 })

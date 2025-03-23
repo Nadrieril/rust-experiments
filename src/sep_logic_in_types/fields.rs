@@ -187,6 +187,7 @@ where
             ptr
         })
     }
+    #[expect(unused)]
     fn drop_field_permission<'this, 'field, PtrPerm>(
         self: VPtr<PtrPerm, Self>,
         tok: FieldTok,

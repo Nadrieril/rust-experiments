@@ -140,6 +140,7 @@ where
     T: PackLt,
 {
     /// Give a name to the hidden lifetime in a pointer target.
+    #[expect(unused)]
     pub fn unpack_target_lt<R>(
         self,
         f: impl for<'this> FnOnce(VPtr<Perm, T::Of<'this>>) -> R,
@@ -150,6 +151,7 @@ where
 }
 
 /// Hide the lifetime in a pointer target.
+#[expect(unused)]
 pub fn vpack_target_lt<'this, Perm: PtrPerm, T: PackLt>(
     ptr: VPtr<Perm, T::Of<'this>>,
 ) -> VPtr<Perm, ExistsLt<T>> {
