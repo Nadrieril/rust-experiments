@@ -23,7 +23,7 @@ unsafe impl<Prev, Next> EraseNestedPerms for Node<Prev, Next> {
     type Erased = Node;
 }
 
-unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasPermField<FPrev, Prev> for Node<Prev, Next> {
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasOptPtrField<FPrev, Prev> for Node<Prev, Next> {
     type FieldTy = Node;
     type ChangePerm<NewPrev: PtrPerm> = Node<NewPrev, Next>;
     unsafe fn field_raw(
@@ -33,7 +33,7 @@ unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasPermField<FPrev, Prev> for Node<Pre
         unsafe { NonNull::new_unchecked(&raw mut (*ptr.as_ptr()).prev) }
     }
 }
-unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasPermField<FNext, Next> for Node<Prev, Next> {
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasOptPtrField<FNext, Next> for Node<Prev, Next> {
     type FieldTy = Node;
     type ChangePerm<NewNext: PtrPerm> = Node<Prev, NewNext>;
     unsafe fn field_raw(

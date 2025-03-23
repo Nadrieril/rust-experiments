@@ -22,34 +22,42 @@ where
     type Erased = <T::Of<'static> as EraseNestedPerms>::Erased;
 }
 
-/// A type that has an `Option<Ptr<Perm, FieldTy>>` field where `Perm` is a generic argument.
-/// This trait permits manipulating the value and permissions of this field.
-/// The `F` is the index of the field, to support multiple fields per type.
-pub unsafe trait HasPermField<FieldTok, FieldPerm>: EraseNestedPerms
+/// A struct-like type with a field whose type is generic in a pointer permission. This trait
+/// permits manipulating the value and permissions of this field.
+/// The `FieldTok` is a token identifying the field, which allows for types with several fields.
+/// Safety: TODO, definitely something about transmutability.
+pub unsafe trait HasGenericPermField<FieldTok, FieldPerm>: EraseNestedPerms
 where
     FieldTok: Copy,
     FieldPerm: PtrPerm,
 {
-    type FieldTy;
-    type ChangePerm<NewPerm: PtrPerm>: HasPermField<FieldTok, NewPerm>
+    type FieldTy<Perm: PtrPerm>;
+    type ChangePerm<NewPerm: PtrPerm>: HasGenericPermField<FieldTok, NewPerm>
         + EraseNestedPerms<Erased = Self::Erased>;
 
-    unsafe fn field_raw(
-        ptr: NonNull<Self>,
-        _tok: FieldTok,
-    ) -> NonNull<Option<Ptr<FieldPerm, Self::FieldTy>>>;
+    unsafe fn field_raw(ptr: NonNull<Self>, _tok: FieldTok) -> NonNull<Self::FieldTy<FieldPerm>>;
 
-    #[expect(unused)]
-    fn field_ref(&self, tok: FieldTok) -> &Option<Ptr<FieldPerm, Self::FieldTy>> {
-        Ptr::from_ref(self)
-            .get_field::<_, NoPerm>(tok)
-            .unpack_lt(|(ptr_to_field, _)| ptr_to_field.deref_exact())
-    }
-    #[expect(unused)]
-    fn field_mut(&mut self, tok: FieldTok) -> &mut Option<Ptr<FieldPerm, Self::FieldTy>> {
-        Ptr::from_mut(self)
-            .get_field::<_, NoPerm>(tok)
-            .unpack_lt(|(ptr_to_field, _)| ptr_to_field.into_deref_mut())
+    /// Given a pointer to `self`, get a pointer to the field, with the same permissions. While the
+    /// new pointer is active, the permissions to `self` are inaccessible (because it was moved
+    /// out). The original permissions can be recovered by relinquishing the subpointer using the
+    /// returned wand.
+    // TODO: could (should?) require empty pointee pred
+    fn get_field_virt<'this, 'field, PtrPerm, NewFieldPerm: self::PtrPerm>(
+        self: VPtr<PtrPerm, Self>,
+        _tok: FieldTok,
+    ) -> ExistsLt!(<'sub> = (
+            VPtr<PointsTo<'sub, PtrPerm::Access>, Self::FieldTy<FieldPerm>>,
+            Wand<
+                VPtr<PointsTo<'sub, PtrPerm::Access>, Self::FieldTy<NewFieldPerm>>,
+                VPtr<PtrPerm, Self::ChangePerm<NewFieldPerm>>
+            >,
+       ))
+    where
+        PtrPerm: HasRead<'this>, // TODO: can we relax this?
+    {
+        let wand = unsafe { Wand::new(self.cast_ty()).map() };
+        let ptr = unsafe { VPtr::new(PointsTo::new()) };
+        ExistsLt::pack_lt((ptr, wand))
     }
 
     /// Given a pointer to `self`, get a pointer to the field, with the same permissions. While the
@@ -61,9 +69,9 @@ where
         self: Ptr<PtrPerm, Self>,
         tok: FieldTok,
     ) -> ExistsLt!(<'sub> = (
-            Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
+            Ptr<PointsTo<'sub, PtrPerm::Access>, Self::FieldTy<FieldPerm>>,
             Wand<
-                VPtr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<NewFieldPerm, Self::FieldTy>>>,
+                VPtr<PointsTo<'sub, PtrPerm::Access>, Self::FieldTy<NewFieldPerm>>,
                 VPtr<PtrPerm, Self::ChangePerm<NewFieldPerm>>
             >,
        ))
@@ -80,28 +88,34 @@ where
             })
     }
 
-    /// Given a pointer to `self`, get a pointer to the field, with the same permissions. While the
-    /// new pointer is active, the permissions to `self` are inaccessible (because it was moved
-    /// out). The original permissions can be recovered by relinquishing the subpointer using the
-    /// returned wand.
-    // TODO: could (should?) require empty pointee pred
-    fn get_field_virt<'this, 'field, PtrPerm, NewFieldPerm: self::PtrPerm>(
-        self: VPtr<PtrPerm, Self>,
-        _tok: FieldTok,
-    ) -> ExistsLt!(<'sub> = (
-            VPtr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
-            Wand<
-                VPtr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<NewFieldPerm, Self::FieldTy>>>,
-                VPtr<PtrPerm, Self::ChangePerm<NewFieldPerm>>
-            >,
-       ))
-    where
-        PtrPerm: HasRead<'this>,
-    {
-        let wand = unsafe { Wand::new(self.cast_ty()).map() };
-        let ptr = unsafe { VPtr::new(PointsTo::new()) };
-        ExistsLt::pack_lt((ptr, wand))
+    #[expect(unused)]
+    fn field_ref(&self, tok: FieldTok) -> &Self::FieldTy<FieldPerm> {
+        Ptr::from_ref(self)
+            .get_field::<_, NoPerm>(tok)
+            .unpack_lt(|(ptr_to_field, _)| ptr_to_field.deref_exact())
     }
+    #[expect(unused)]
+    fn field_mut(&mut self, tok: FieldTok) -> &mut Self::FieldTy<FieldPerm> {
+        Ptr::from_mut(self)
+            .get_field::<_, NoPerm>(tok)
+            .unpack_lt(|(ptr_to_field, _)| ptr_to_field.into_deref_mut())
+    }
+}
+
+/// A type that has an `Option<Ptr<Perm, FieldTy>>` field where `Perm` is a generic argument.
+pub unsafe trait HasOptPtrField<FieldTok, FieldPerm>: EraseNestedPerms
+where
+    FieldTok: Copy,
+    FieldPerm: PtrPerm,
+{
+    type FieldTy;
+    type ChangePerm<NewPerm: PtrPerm>: HasOptPtrField<FieldTok, NewPerm>
+        + EraseNestedPerms<Erased = Self::Erased>;
+
+    unsafe fn field_raw(
+        ptr: NonNull<Self>,
+        _tok: FieldTok,
+    ) -> NonNull<Option<Ptr<FieldPerm, Self::FieldTy>>>;
 
     /// Read the contents of the field, taking the permissions with it as much as possible.
     fn read_field<'this, 'field, PtrPerm>(
@@ -197,5 +211,19 @@ where
         FieldPerm: IsPointsTo<'field>,
     {
         self.write_field_permission_virt(tok, VPtr::permissionless())
+    }
+}
+unsafe impl<FieldTok, FieldPerm, T> HasGenericPermField<FieldTok, FieldPerm> for T
+where
+    Self: HasOptPtrField<FieldTok, FieldPerm>,
+    FieldTok: Copy,
+    FieldPerm: PtrPerm,
+{
+    type FieldTy<Perm: PtrPerm> =
+        Option<Ptr<Perm, <Self as HasOptPtrField<FieldTok, FieldPerm>>::FieldTy>>;
+    type ChangePerm<NewPerm: PtrPerm> =
+        <Self as HasOptPtrField<FieldTok, FieldPerm>>::ChangePerm<NewPerm>;
+    unsafe fn field_raw(ptr: NonNull<Self>, tok: FieldTok) -> NonNull<Self::FieldTy<FieldPerm>> {
+        unsafe { <Self as HasOptPtrField<FieldTok, FieldPerm>>::field_raw(ptr, tok) }
     }
 }
