@@ -184,7 +184,7 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
 impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     /// Read a pointer behind a pointer. The permission that can be extracted that way is capped by
     /// the permission of the outer pointer; see the `AccessThrough` trait.
-    pub fn read_nested_ptr<'this, 'inner>(
+    pub fn read_opt_ptr<'this, 'inner>(
         self,
     ) -> (
         Ptr<OuterPerm, Option<Ptr<PointsTo<'inner>, T>>>,
@@ -199,7 +199,7 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
         let inner = self.deref().as_ref().map(|ptr| ptr.copy());
         let permissionless_outer = self.copy();
         // Extract the permissions.
-        let (vouter, vinner) = self.into_virtual().read_nested_ptr();
+        let (vouter, vinner) = self.into_virtual().read_opt_ptr();
         // Reassemble.
         let inner = inner.map(|inner| inner.with_virtual(vinner));
         let ptr = permissionless_outer.with_virtual(vouter);
@@ -208,7 +208,7 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
 
     /// Write to a pointer behind a pointer.
     // TODO: shouldn't this invalidate a potential pointee predicate in `OuterPerm`?
-    pub fn write_nested_ptr<'this, NewInnerPerm>(
+    pub fn write_opt_ptr<'this, NewInnerPerm>(
         self,
         new: Option<Ptr<NewInnerPerm, T>>,
     ) -> Ptr<OuterPerm, Option<Ptr<NewInnerPerm, T>>>

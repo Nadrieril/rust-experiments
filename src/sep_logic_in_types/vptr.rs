@@ -92,7 +92,8 @@ impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     /// Take the permission from a pointer behind a (virtual) pointer. The permission that can be
     /// extracted that way is capped by the permission of the outer pointer; see the
     /// `AccessThrough` trait.
-    pub fn read_nested_ptr<'this, 'inner>(
+    // TODO: very unsound
+    pub fn read_opt_ptr<'this, 'inner>(
         self,
     ) -> (
         VPtr<OuterPerm, Option<Ptr<PointsTo<'inner>, T>>>,
@@ -115,7 +116,7 @@ impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     /// pointer. This does not write to memory, hence cannot be used to change the address of the
     /// inner pointer.
     // TODO: shouldn't this invalidate a potential pointee predicate in `OuterPerm`?
-    pub fn write_nested_ptr_perm<'this, 'inner, NewInnerPerm>(
+    pub fn write_opt_ptr_perm<'this, 'inner, NewInnerPerm>(
         self,
         _new: VPtr<NewInnerPerm, T>,
     ) -> VPtr<OuterPerm, Option<Ptr<NewInnerPerm, T>>>

@@ -133,7 +133,7 @@ where
         let this = self.copy();
         self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
-            let (ptr_to_field, inner) = ptr_to_field.read_nested_ptr();
+            let (ptr_to_field, inner) = ptr_to_field.read_opt_ptr();
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<PointsTo<'inner>, Self::FieldTy>>>,
             // inner: Option<Ptr<FieldPerm::AccessThrough, Self::FieldTy>>,
             let ptr = this.with_virtual(wand.apply(ptr_to_field.into_virtual()));
@@ -158,12 +158,12 @@ where
         let this = self.copy();
         self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
-            let (ptr_to_field, inner) = ptr_to_field.read_nested_ptr();
+            let (ptr_to_field, inner) = ptr_to_field.read_opt_ptr();
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<PointsTo<'inner>, Self::FieldTy>>>,
             // inner: Option<Ptr<PointsTo<'_, FieldPerm::Access, FieldPerm::Pred>, Self::FieldTy>>
             let inner = inner.map(Ptr::pack_perm);
             // inner: Option<Ptr<FieldPerm, Self::FieldTy>>,
-            let ptr_to_field = ptr_to_field.write_nested_ptr(new);
+            let ptr_to_field = ptr_to_field.write_opt_ptr(new);
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<NewPerm, Self::FieldTy>>>,
             let ptr = this.with_virtual(wand.apply(ptr_to_field.into_virtual()));
             // ptr: Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
@@ -195,7 +195,7 @@ where
     {
         self.get_field_virt(tok).unpack_lt(|(ptr_to_field, wand)| {
             // ptr_to_field: VPtr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
-            let ptr_to_field = ptr_to_field.write_nested_ptr_perm(new);
+            let ptr_to_field = ptr_to_field.write_opt_ptr_perm(new);
             let ptr = wand.apply(ptr_to_field);
             // ptr: VPtr<PtrPerm, Self::ChangePerm<NewPerm>>,
             ptr
