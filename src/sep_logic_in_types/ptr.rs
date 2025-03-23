@@ -61,6 +61,13 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     pub unsafe fn cast_ty<U>(self) -> Ptr<Perm, U> {
         unsafe { Ptr::new_with_vptr(self.ptr.cast(), self.vptr.cast_ty()) }
     }
+    pub unsafe fn cast_perm<'this, NewPerm>(self) -> Ptr<NewPerm, T>
+    where
+        Perm: IsPointsTo<'this>,
+        NewPerm: IsPointsTo<'this>,
+    {
+        self.map_virtual(|v| unsafe { v.cast_perm() })
+    }
     pub unsafe fn cast_access<'this, NewPerm>(self) -> Ptr<NewPerm, T>
     where
         Perm: IsPointsTo<'this>,
@@ -271,7 +278,6 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     }
 
     /// Write to a pointer behind a pointer.
-    // TODO: shouldn't this invalidate a potential pointee predicate in `OuterPerm`?
     pub fn write_opt_ptr<'this, NewInnerPerm>(
         self,
         new: Option<Ptr<NewInnerPerm, T>>,
@@ -281,9 +287,7 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
         InnerPerm: PtrPerm,
         NewInnerPerm: PtrPerm,
     {
-        let mut ptr = unsafe { self.cast_ty() };
-        *ptr.deref_mut() = new;
-        ptr
+        unsafe { self.type_changing_write(new) }
     }
 }
 

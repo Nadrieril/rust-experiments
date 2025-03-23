@@ -123,10 +123,30 @@ mod own {
         type AccessThrough = Perm;
     }
 
-    impl<'this, Pred: PointeePred, T> Ptr<Own<'this, Pred>, T> {
+    impl<'this, Perm: HasOwn<'this>, T> Ptr<Perm, T> {
+        pub fn move_out(self) -> (Ptr<UninitOwned<'this>, T>, T) {
+            let ret = unsafe { self.as_non_null().read() };
+            let ptr = unsafe { self.cast_perm() };
+            (ptr, ret)
+        }
         pub fn into_inner(self) -> T {
-            // Safety: we have full ownership.
-            *unsafe { Box::from_non_null(self.as_non_null()) }
+            let (ptr, ret) = self.move_out();
+            ptr.dealloc();
+            ret
+        }
+
+        /// Write to the pointer in a way that changes its type.
+        // TODO: shouldn't this invalidate a pointee predicate?
+        pub unsafe fn type_changing_write<U>(self, new: U) -> Ptr<Perm, U>
+        where
+            Perm: HasOwn<'this>,
+        {
+            // Drop the old value.
+            let (ptr, _) = self.move_out();
+            let ptr = unsafe { ptr.cast_ty() };
+            let ptr = ptr.write(new);
+            // FIXME: we restore the pointee predicate here but we shouldn't.
+            unsafe { ptr.cast_perm() }
         }
     }
     impl Ptr<(), ()> {
@@ -266,6 +286,10 @@ mod uninit_owned {
     }
 
     impl<'this, T> Ptr<UninitOwned<'this>, T> {
+        pub fn dealloc(self) {
+            let b: Box<MaybeUninit<T>> = unsafe { Box::from_non_null(self.as_non_null().cast()) };
+            drop(b);
+        }
         pub fn write(self, val: T) -> Ptr<Own<'this>, T> {
             unsafe { self.as_non_null().write(val) };
             unsafe { self.cast_access() }
