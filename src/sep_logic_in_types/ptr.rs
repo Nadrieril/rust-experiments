@@ -1,6 +1,7 @@
 use super::*;
+use crate::ExistsLt;
 use higher_kinded_types::ForLt as PackLt;
-use std::{fmt::Debug, marker::PhantomData, ops::Receiver, ptr::NonNull};
+use std::{fmt::Debug, marker::PhantomData, mem::offset_of, ops::Receiver, ptr::NonNull};
 
 // Copied from `ghost_cell`.
 pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
@@ -181,6 +182,66 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     }
 }
 
+impl<Perm, T> Ptr<Perm, Option<T>> {
+    /// Gets a pointer to the inside of the pointed-to option.
+    pub fn read_opt<'this, U>(
+        self,
+    ) -> Result<
+        ExistsLt!(<'sub> = (
+             Ptr<PointsTo<'sub, Perm::Access>, T>,
+             Wand<
+                 VPtr<PointsTo<'sub, Perm::Access>, U>,
+                 VPtr<Perm, Option<U>>
+             >,
+        )),
+        Ptr<Perm, Option<U>>,
+    >
+    where
+        Perm: HasRead<'this>,
+    {
+        // Is there no better way to get a raw pointer to the inside of an option?
+        if self.deref().is_some() {
+            let ptr = unsafe {
+                self.ptr
+                    .cast::<u8>()
+                    .add(offset_of!(Option<T>, Some.0))
+                    .cast::<T>()
+            };
+            let ptr = unsafe { Ptr::new_with_perm(ptr, PointsTo::new()) };
+            let wand = unsafe { Wand::new(self.into_virtual().cast_ty()).map() };
+            Ok(ExistsLt::pack_lt((ptr, wand)))
+        } else {
+            Err(unsafe { self.cast_ty() })
+        }
+    }
+}
+
+impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Ptr<InnerPerm, T>> {
+    /// Read a pointer behind a pointer. The permission that can be extracted that way is capped by
+    /// the permission of the outer pointer; see the `AccessThrough` trait.
+    pub fn read_nested_ptr<'this, 'inner>(
+        self,
+    ) -> (
+        Ptr<OuterPerm, Ptr<PointsTo<'inner>, T>>,
+        Ptr<AccessThroughType<'inner, OuterPerm, InnerPerm>, T>,
+    )
+    where
+        OuterPerm: HasRead<'this>,
+        InnerPerm: IsPointsTo<'inner>,
+        InnerPerm::Access: AccessThrough<OuterPerm::Access>,
+    {
+        // Copy the pointers.
+        let inner = self.deref().copy();
+        let permissionless_outer = self.copy();
+        // Extract the permissions.
+        let (vouter, vinner) = self.into_virtual().read_nested_ptr();
+        // Reassemble.
+        let inner = inner.with_virtual(vinner);
+        let ptr = permissionless_outer.with_virtual(vouter);
+        (ptr, inner)
+    }
+}
+
 impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     /// Read a pointer behind a pointer. The permission that can be extracted that way is capped by
     /// the permission of the outer pointer; see the `AccessThrough` trait.
@@ -195,15 +256,18 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
         InnerPerm: IsPointsTo<'inner>,
         InnerPerm::Access: AccessThrough<OuterPerm::Access>,
     {
-        // Copy the pointers.
-        let inner = self.deref().as_ref().map(|ptr| ptr.copy());
-        let permissionless_outer = self.copy();
-        // Extract the permissions.
-        let (vouter, vinner) = self.into_virtual().read_opt_ptr();
-        // Reassemble.
-        let inner = inner.map(|inner| inner.with_virtual(vinner));
-        let ptr = permissionless_outer.with_virtual(vouter);
-        (ptr, inner)
+        let this = self.copy();
+        match self.read_opt() {
+            Ok(ptr) => ptr.unpack_lt(|(ptr, wand)| {
+                // ptr: Ptr<PointsTo<'sub, Perm::Access>, Ptr<InnerPerm, T>>,
+                let (outer, inner) = ptr.read_nested_ptr();
+                // outer: Ptr<PointsTo<'sub, Perm::Access>, Ptr<PointsTo<'inner>, T>>,
+                // inner: Ptr<AccessThroughType<'inner, PointsTo<'sub, Perm::Access>, InnerPerm>, T>,
+                let ptr = this.copy().with_virtual(wand.apply(outer.into_virtual()));
+                (ptr, Some(inner))
+            }),
+            Err(ptr) => (ptr, None),
+        }
     }
 
     /// Write to a pointer behind a pointer.

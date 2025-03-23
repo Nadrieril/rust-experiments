@@ -88,15 +88,14 @@ impl<Perm: PtrPerm, T> VPtr<Perm, T> {
     }
 }
 
-impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
+impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Ptr<InnerPerm, T>> {
     /// Take the permission from a pointer behind a (virtual) pointer. The permission that can be
     /// extracted that way is capped by the permission of the outer pointer; see the
     /// `AccessThrough` trait.
-    // TODO: very unsound
-    pub fn read_opt_ptr<'this, 'inner>(
+    pub fn read_nested_ptr<'this, 'inner>(
         self,
     ) -> (
-        VPtr<OuterPerm, Option<Ptr<PointsTo<'inner>, T>>>,
+        VPtr<OuterPerm, Ptr<PointsTo<'inner>, T>>,
         VPtr<AccessThroughType<'inner, OuterPerm, InnerPerm>, T>,
     )
     where
@@ -111,7 +110,9 @@ impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
         let ptr = unsafe { self.cast_ty() };
         (ptr, inner)
     }
+}
 
+impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     /// The opposite of `read_nested_ptr`: writes a permission to a pointer behind a (virtual)
     /// pointer. This does not write to memory, hence cannot be used to change the address of the
     /// inner pointer.
