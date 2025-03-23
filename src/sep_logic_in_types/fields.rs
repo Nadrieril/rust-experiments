@@ -123,7 +123,7 @@ where
         tok: FieldTok,
     ) -> (
         Ptr<PtrPerm, Self::ChangePerm<PointsTo<'field>>>,
-        Option<Ptr<AccessThroughType<'this, 'field, PtrPerm, FieldPerm>, Self::FieldTy>>,
+        Option<Ptr<AccessThroughType<'field, PtrPerm, FieldPerm>, Self::FieldTy>>,
     )
     where
         PtrPerm: HasRead<'this>,

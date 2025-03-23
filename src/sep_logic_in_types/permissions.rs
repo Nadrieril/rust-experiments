@@ -27,8 +27,10 @@ impl PtrAccess for () {}
 pub trait PointeePred {}
 impl PointeePred for () {}
 
-pub unsafe trait IsPointsTo<'this>: PtrPerm + Sized {
+pub unsafe trait HasAccess: PtrPerm + Sized {
     type Access: PtrAccess;
+}
+pub unsafe trait IsPointsTo<'this>: HasAccess {
     type Pred: PointeePred;
     fn from_points_to(x: PointsTo<'this, Self::Access, Self::Pred>) -> Self;
     #[expect(unused)]
@@ -46,13 +48,19 @@ pub unsafe trait IsPointsTo<'this>: PtrPerm + Sized {
         unsafe { PointsTo::new() }
     }
 }
+unsafe impl<'this, Access, Pred> HasAccess for PointsTo<'this, Access, Pred>
+where
+    Access: PtrAccess,
+    Pred: PointeePred,
+{
+    type Access = Access;
+}
 unsafe impl<'this, Access, Pred> IsPointsTo<'this> for PointsTo<'this, Access, Pred>
 where
     Access: PtrAccess,
     Pred: PointeePred,
 {
     type Pred = Pred;
-    type Access = Access;
     fn into_points_to(self) -> Self {
         self
     }
@@ -69,9 +77,9 @@ pub unsafe trait AccessThrough<Outer: PtrAccess>: PtrAccess {
 
 /// Helper type that constructs the through-permission for a given pair of permissions.
 #[allow(type_alias_bounds)]
-pub type AccessThroughType<'outer, 'inner, OuterPerm, InnerPerm>
+pub type AccessThroughType<'inner, OuterPerm, InnerPerm>
 where
-    OuterPerm: IsPointsTo<'outer>,
+    OuterPerm: HasAccess,
     InnerPerm: IsPointsTo<'inner, Access: AccessThrough<OuterPerm::Access>>,
 = PointsTo<
     'inner,

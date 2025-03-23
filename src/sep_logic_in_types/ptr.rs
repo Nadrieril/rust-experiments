@@ -188,7 +188,7 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
         self,
     ) -> (
         Ptr<OuterPerm, Option<Ptr<PointsTo<'inner>, T>>>,
-        Option<Ptr<AccessThroughType<'this, 'inner, OuterPerm, InnerPerm>, T>>,
+        Option<Ptr<AccessThroughType<'inner, OuterPerm, InnerPerm>, T>>,
     )
     where
         OuterPerm: HasRead<'this>,

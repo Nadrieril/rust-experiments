@@ -96,7 +96,7 @@ impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
         self,
     ) -> (
         VPtr<OuterPerm, Option<Ptr<PointsTo<'inner>, T>>>,
-        VPtr<AccessThroughType<'this, 'inner, OuterPerm, InnerPerm>, T>,
+        VPtr<AccessThroughType<'inner, OuterPerm, InnerPerm>, T>,
     )
     where
         OuterPerm: IsPointsTo<'this>,
