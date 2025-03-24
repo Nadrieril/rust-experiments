@@ -276,19 +276,6 @@ impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
             Err(ptr) => (ptr, None),
         }
     }
-
-    /// Write to a pointer behind a pointer.
-    pub fn write_opt_ptr<'this, NewInnerPerm>(
-        self,
-        new: Option<Ptr<NewInnerPerm, T>>,
-    ) -> Ptr<OuterPerm, Option<Ptr<NewInnerPerm, T>>>
-    where
-        OuterPerm: HasOwn<'this>,
-        InnerPerm: PtrPerm,
-        NewInnerPerm: PtrPerm,
-    {
-        unsafe { self.type_changing_write(new) }
-    }
 }
 
 impl<'this, 'a, T> Ptr<Read<'this, 'a>, T> {

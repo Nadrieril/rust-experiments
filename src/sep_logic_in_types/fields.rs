@@ -4,8 +4,9 @@ use super::*;
 use crate::ExistsLt;
 use higher_kinded_types::ForLt as PackLt;
 
-/// Safety: `Self` and `Target` are the same modulo predicates in `Ptr`, and the predicates in
-/// `Self` imply the corresponding predicates in `Target`.
+/// Safety: `Self` and `Erased` are the same modulo predicates in `Ptr`, and the predicates in
+/// `Self` imply the corresponding predicates in `Erased`.
+/// In particular, `Self` and `Erased` must be compatible for transmutability.
 pub unsafe trait ErasePerms: Sized {
     type Erased;
     fn erase_perms<Perm: PtrPerm>(ptr: VPtr<Perm, Self>) -> VPtr<Perm, Self::Erased> {
@@ -20,6 +21,14 @@ where
     for<'a> T::Of<'a>: ErasePerms,
 {
     type Erased = <T::Of<'static> as ErasePerms>::Erased;
+}
+
+unsafe impl<Perm, T> ErasePerms for Ptr<Perm, T> {
+    type Erased = Ptr<NoPerm, T>;
+}
+
+unsafe impl<T: ErasePerms> ErasePerms for Option<T> {
+    type Erased = Option<T::Erased>;
 }
 
 /// A struct-like type with a field whose type is generic in a pointer permission. This trait
@@ -163,7 +172,7 @@ where
             // inner: Option<Ptr<PointsTo<'_, FieldPerm::Access, FieldPerm::Pred>, Self::FieldTy>>
             let inner = inner.map(Ptr::pack_perm);
             // inner: Option<Ptr<FieldPerm, Self::FieldTy>>,
-            let ptr_to_field = ptr_to_field.write_opt_ptr(new);
+            let ptr_to_field = ptr_to_field.write(new);
             // ptr_to_field: Ptr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<NewPerm, Self::FieldTy>>>,
             let ptr = this.with_virtual(wand.apply(ptr_to_field.into_virtual()));
             // ptr: Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,

@@ -103,7 +103,7 @@ mod noperm {
 
 pub use own::*;
 mod own {
-    use super::super::{ptr::*, ExistsLt};
+    use super::super::{fields::*, ptr::*, ExistsLt};
     use super::*;
     use crate::ExistsLt;
 
@@ -135,11 +135,14 @@ mod own {
             ret
         }
 
-        /// Write to the pointer in a way that changes its type.
+        /// Write to the pointer in a way that can change its type. For non-type-changing writes,
+        /// use `deref_mut`.
         // TODO: shouldn't this invalidate a pointee predicate?
-        pub unsafe fn type_changing_write<U>(self, new: U) -> Ptr<Perm, U>
+        pub fn write<U>(self, new: U) -> Ptr<Perm, U>
         where
             Perm: HasOwn<'this>,
+            T: ErasePerms,
+            U: ErasePerms<Erased = T::Erased>,
         {
             // Drop the old value.
             let (ptr, _) = self.move_out();
