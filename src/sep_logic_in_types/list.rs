@@ -17,6 +17,8 @@ struct Node<Prev = NoPerm, Next = NoPerm> {
 struct FPrev;
 #[derive(Clone, Copy)]
 struct FNext;
+#[derive(Clone, Copy)]
+struct FVal;
 
 // All of the unsafe for `Node` is in these three declarations.
 unsafe impl<Prev, Next> ErasePerms for Node<Prev, Next> {
@@ -42,6 +44,15 @@ unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasGenericPermField<FNext, Next> for N
 }
 unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasOptPtrField<FNext, Next> for Node<Prev, Next> {
     type PointeeTy = Node;
+}
+unsafe impl<Prev: PtrPerm, Next: PtrPerm, UnusedPerm: PtrPerm> HasGenericPermField<FVal, UnusedPerm>
+    for Node<Prev, Next>
+{
+    type FieldTy<Perm: PtrPerm> = usize;
+    type ChangePerm<NewPerm: PtrPerm> = Self;
+    unsafe fn field_raw(ptr: NonNull<Self>, _tok: FVal) -> NonNull<Self::FieldTy<UnusedPerm>> {
+        unsafe { NonNull::new_unchecked(&raw mut (*ptr.as_ptr()).val) }
+    }
 }
 
 /// A linked list with backward pointers, with ownership that follows the forward pointers.
@@ -428,7 +439,7 @@ impl<'a> Iterator for ListIterMut<'a> {
         fn advance<'this, 'prev, 'a>(
             ptr: Ptr<Mut<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>,
         ) -> (
-            Ptr<Mut<'this, 'a>, Node>,
+            ExistsLt!(<'next> = Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PointsTo<'next>>>),
             Option<ExistsLt!(Ptr<Mut<'_, 'a, NodeStateFwd<'_, 'this>>, Node>)>,
         ) {
             let ptr = NodeStateFwd::unpack(ptr);
@@ -436,8 +447,8 @@ impl<'a> Iterator for ListIterMut<'a> {
                 // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
                 let (ptr, next) = ptr.read_field(FNext);
                 // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PointsTo<'next>>>
-                // next: Ptr<Mut<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
-                let ptr = ptr.drop_target_perms();
+                // next: Option<Ptr<Mut<'next, 'a, NodeStateFwd<'next, 'this>>, Node>>
+                let ptr = ExistsLt::pack_lt(ptr);
                 (ptr, next.map(ExistsLt::pack_lt))
             })
         }
@@ -445,7 +456,14 @@ impl<'a> Iterator for ListIterMut<'a> {
             ptr.unpack_lt(|ptr| {
                 let (ptr, next) = advance(ptr);
                 self.0 = next.map(ExistsLt::pack_lt);
-                Some(&mut ptr.into_deref_mut().val)
+                ptr.unpack_lt(|ptr| {
+                    // Can't use `deref_mut` as this would create a `&'a mut Node<PointsTo<'prev>,
+                    // PointsTo<'next>>` which implies `'prev: 'a`.
+                    <Node<_, _> as HasGenericPermField<FVal, NoPerm>>::get_field::<_, NoPerm>(
+                        ptr, FVal,
+                    )
+                    .unpack_lt(|(ptr_to_field, _)| Some(ptr_to_field.into_deref_mut()))
+                })
             })
         })
     }

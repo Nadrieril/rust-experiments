@@ -110,19 +110,20 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         self.map_virtual_mut(|v| v.copy_mut())
     }
 
-    pub fn drop_target_perms<'this>(self) -> Ptr<Perm, T::Erased>
+    #[expect(unused)]
+    pub fn erase_target_perms<'this>(self) -> Ptr<Perm, T::Erased>
     where
-        Perm: IsPointsTo<'this>,
+        Perm: HasOwn<'this>,
         T: ErasePerms,
     {
-        self.map_virtual(|v| v.drop_target_perms())
+        self.map_virtual(|v| v.erase_target_perms())
     }
     pub fn weak_ref<'this>(&self) -> Ptr<PointsTo<'this>, T::Erased>
     where
         Perm: IsPointsTo<'this>,
         T: ErasePerms,
     {
-        self.copy().drop_target_perms()
+        unsafe { self.copy().cast_ty() }
     }
 
     pub fn map_virtual<'this, NewPerm, U>(

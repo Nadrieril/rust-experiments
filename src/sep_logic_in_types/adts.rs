@@ -9,10 +9,6 @@ use higher_kinded_types::ForLt as PackLt;
 /// In particular, `Self` and `Erased` must be compatible for transmutability.
 pub unsafe trait ErasePerms: Sized {
     type Erased;
-    fn erase_perms<Perm: PtrPerm>(ptr: VPtr<Perm, Self>) -> VPtr<Perm, Self::Erased> {
-        // Safety: ok by the precondition.
-        unsafe { ptr.cast_ty() }
-    }
 }
 
 unsafe impl<T> ErasePerms for ExistsLt<T>
