@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{mem::offset_of, ptr::NonNull};
 
 use super::*;
 use crate::ExistsLt;
@@ -29,6 +29,40 @@ unsafe impl<Perm, T> ErasePerms for Ptr<Perm, T> {
 
 unsafe impl<T: ErasePerms> ErasePerms for Option<T> {
     type Erased = Option<T::Erased>;
+}
+
+impl<Perm, T> Ptr<Perm, Option<T>> {
+    /// Gets a pointer to the inside of the pointed-to option.
+    pub fn read_opt<'this, U>(
+        self,
+    ) -> Result<
+        ExistsLt!(<'sub> = (
+             Ptr<PointsTo<'sub, Perm::Access>, T>,
+             Wand<
+                 VPtr<PointsTo<'sub, Perm::Access>, U>,
+                 VPtr<Perm, Option<U>>
+             >,
+        )),
+        Ptr<Perm, Option<U>>,
+    >
+    where
+        Perm: HasRead<'this>,
+    {
+        // Is there no better way to get a raw pointer to the inside of an option?
+        if self.deref().is_some() {
+            let ptr = unsafe {
+                self.as_non_null()
+                    .cast::<u8>()
+                    .add(offset_of!(Option<T>, Some.0))
+                    .cast::<T>()
+            };
+            let ptr = unsafe { Ptr::new_with_perm(ptr, PointsTo::new()) };
+            let wand = unsafe { Wand::new(self.into_virtual().cast_ty()).map() };
+            Ok(ExistsLt::pack_lt((ptr, wand)))
+        } else {
+            Err(unsafe { self.cast_ty() })
+        }
+    }
 }
 
 /// A struct-like type with a field whose type is generic in a pointer permission. This trait

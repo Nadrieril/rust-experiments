@@ -174,7 +174,6 @@ impl<'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
 
 use list_helpers::NonEmptyList;
 mod list_helpers {
-    use super::super::*;
     use super::*;
 
     pub struct NonEmptyList<'prev>(

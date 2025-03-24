@@ -1,4 +1,4 @@
-use super::ptr::*;
+use super::*;
 use std::marker::PhantomData;
 
 /// A predicate meant for a pointer.
@@ -86,6 +86,30 @@ where
     <InnerPerm::Access as AccessThrough<OuterPerm::Access>>::AccessThrough,
     InnerPerm::Pred,
 >;
+
+impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Ptr<InnerPerm, T>> {
+    /// Take the permission from a pointer behind a (virtual) pointer. The permission that can be
+    /// extracted that way is capped by the permission of the outer pointer; see the
+    /// `AccessThrough` trait.
+    pub fn read_nested_ptr<'this, 'inner>(
+        self,
+    ) -> (
+        VPtr<OuterPerm, Ptr<PointsTo<'inner>, T>>,
+        VPtr<AccessThroughType<'inner, OuterPerm, InnerPerm>, T>,
+    )
+    where
+        OuterPerm: IsPointsTo<'this>,
+        InnerPerm: IsPointsTo<'inner>,
+        InnerPerm::Access: AccessThrough<OuterPerm::Access>,
+    {
+        // Safety: by the invariant of `AccessThrough`, it's ok to get that pointer out.
+        let inner = unsafe { VPtr::new(<_>::new()) };
+        // Safety: we're downgrading a `IsPointsTo<'a>` to a `PointsTo<'a>`, which is fine even
+        // without any particular permissions on `ptr`.
+        let ptr = unsafe { self.cast_ty() };
+        (ptr, inner)
+    }
+}
 
 pub use noperm::*;
 mod noperm {
@@ -199,6 +223,11 @@ mod mutate {
         type AccessThrough = ();
     }
 
+    impl<'this, 'a, T> Ptr<Mut<'this, 'a>, T> {
+        pub fn from_mut(r: &'a mut T) -> Self {
+            unsafe { Ptr::new_with_perm(r.into(), Mut::new()) }
+        }
+    }
     impl<'this, 'a, Perm: PointeePred, T> Ptr<Mut<'this, 'a, Perm>, T> {
         pub fn into_deref_mut(self) -> &'a mut T {
             // Safety: we have `Mut` permission for `'a`.
@@ -249,6 +278,11 @@ mod read {
         type AccessThrough = ();
     }
 
+    impl<'this, 'a, T> Ptr<Read<'this, 'a>, T> {
+        pub fn from_ref(r: &'a T) -> Self {
+            unsafe { Ptr::new_with_perm(r.into(), Read::new()) }
+        }
+    }
     impl<'this, 'a, Perm: PointeePred, T> Ptr<Read<'this, 'a, Perm>, T> {
         /// Like `deref` but get a more precise lifetime.
         pub fn deref_exact(&self) -> &'a T {
