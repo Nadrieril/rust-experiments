@@ -40,7 +40,7 @@
 // `PointsTo` inside `Ptr`. Ah but `'static` already means impossible.
 // -> not sure enough of my API for that. need to try doubly-linked tree first.
 
-mod fields;
+mod adts;
 pub mod list;
 mod permissions;
 mod predicates;
@@ -49,7 +49,7 @@ mod vptr;
 mod wand;
 pub use higher_kinded_types::ForLt as PackLt;
 
-use fields::*;
+use adts::*;
 use permissions::*;
 use predicates::*;
 use ptr::*;

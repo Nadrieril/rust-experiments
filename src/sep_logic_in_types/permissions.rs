@@ -103,7 +103,7 @@ mod noperm {
 
 pub use own::*;
 mod own {
-    use super::super::{fields::*, ptr::*, ExistsLt};
+    use super::super::{adts::*, ptr::*, ExistsLt};
     use super::*;
     use crate::ExistsLt;
 
