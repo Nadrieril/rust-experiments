@@ -117,14 +117,14 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     pub fn drop_target_perms<'this>(self) -> Ptr<Perm, T::Erased>
     where
         Perm: IsPointsTo<'this>,
-        T: EraseNestedPerms,
+        T: ErasePerms,
     {
         self.map_virtual(|v| v.drop_target_perms())
     }
     pub fn weak_ref<'this>(&self) -> Ptr<PointsTo<'this>, T::Erased>
     where
         Perm: IsPointsTo<'this>,
-        T: EraseNestedPerms,
+        T: ErasePerms,
     {
         self.copy().drop_target_perms()
     }

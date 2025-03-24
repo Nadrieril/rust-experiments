@@ -82,9 +82,9 @@ impl<Perm: PtrPerm, T> VPtr<Perm, T> {
 
     pub fn drop_target_perms(self) -> VPtr<Perm, T::Erased>
     where
-        T: EraseNestedPerms,
+        T: ErasePerms,
     {
-        T::erase_nested_perms(self)
+        T::erase_perms(self)
     }
 }
 

@@ -6,34 +6,34 @@ use higher_kinded_types::ForLt as PackLt;
 
 /// Safety: `Self` and `Target` are the same modulo predicates in `Ptr`, and the predicates in
 /// `Self` imply the corresponding predicates in `Target`.
-pub unsafe trait EraseNestedPerms: Sized {
+pub unsafe trait ErasePerms: Sized {
     type Erased;
-    fn erase_nested_perms<Perm: PtrPerm>(ptr: VPtr<Perm, Self>) -> VPtr<Perm, Self::Erased> {
+    fn erase_perms<Perm: PtrPerm>(ptr: VPtr<Perm, Self>) -> VPtr<Perm, Self::Erased> {
         // Safety: ok by the precondition.
         unsafe { ptr.cast_ty() }
     }
 }
 
-unsafe impl<T> EraseNestedPerms for ExistsLt<T>
+unsafe impl<T> ErasePerms for ExistsLt<T>
 where
     T: PackLt,
-    for<'a> T::Of<'a>: EraseNestedPerms,
+    for<'a> T::Of<'a>: ErasePerms,
 {
-    type Erased = <T::Of<'static> as EraseNestedPerms>::Erased;
+    type Erased = <T::Of<'static> as ErasePerms>::Erased;
 }
 
 /// A struct-like type with a field whose type is generic in a pointer permission. This trait
 /// permits manipulating the value and permissions of this field.
 /// The `FieldTok` is a token identifying the field, which allows for types with several fields.
 /// Safety: TODO, definitely something about transmutability.
-pub unsafe trait HasGenericPermField<FieldTok, FieldPerm>: EraseNestedPerms
+pub unsafe trait HasGenericPermField<FieldTok, FieldPerm>: ErasePerms
 where
     FieldTok: Copy,
     FieldPerm: PtrPerm,
 {
     type FieldTy<Perm: PtrPerm>;
     type ChangePerm<NewPerm: PtrPerm>: HasGenericPermField<FieldTok, NewPerm>
-        + EraseNestedPerms<Erased = Self::Erased>;
+        + ErasePerms<Erased = Self::Erased>;
 
     unsafe fn field_raw(ptr: NonNull<Self>, _tok: FieldTok) -> NonNull<Self::FieldTy<FieldPerm>>;
 
@@ -103,14 +103,14 @@ where
 }
 
 /// A type that has an `Option<Ptr<Perm, FieldTy>>` field where `Perm` is a generic argument.
-pub unsafe trait HasOptPtrField<FieldTok, FieldPerm>: EraseNestedPerms
+pub unsafe trait HasOptPtrField<FieldTok, FieldPerm>: ErasePerms
 where
     FieldTok: Copy,
     FieldPerm: PtrPerm,
 {
     type FieldTy;
     type ChangePerm<NewPerm: PtrPerm>: HasOptPtrField<FieldTok, NewPerm>
-        + EraseNestedPerms<Erased = Self::Erased>;
+        + ErasePerms<Erased = Self::Erased>;
 
     unsafe fn field_raw(
         ptr: NonNull<Self>,

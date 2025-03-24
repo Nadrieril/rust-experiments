@@ -19,7 +19,7 @@ struct FPrev;
 struct FNext;
 
 // All of the unsafe for `Node` is in these three declarations.
-unsafe impl<Prev, Next> EraseNestedPerms for Node<Prev, Next> {
+unsafe impl<Prev, Next> ErasePerms for Node<Prev, Next> {
     type Erased = Node;
 }
 

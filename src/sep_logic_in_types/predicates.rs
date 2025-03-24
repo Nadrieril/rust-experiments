@@ -5,7 +5,7 @@ use super::*;
 /// it possible to represent inductive predicates, that are rolled/unrolled using the
 /// `pack`/`unpack` methods.
 pub trait PackedPredicate<'this, Ty>: PointeePred + Sized {
-    type Unpacked: EraseNestedPerms<Erased = Ty>;
+    type Unpacked: ErasePerms<Erased = Ty>;
     /// Given a pointer with `Self` permission, turn it into a pointer to the type with permissions
     /// applied.
     fn unpack<A: PtrAccess>(
