@@ -23,25 +23,25 @@ unsafe impl<Prev, Next> ErasePerms for Node<Prev, Next> {
     type Erased = Node;
 }
 
-unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasOptPtrField<FPrev, Prev> for Node<Prev, Next> {
-    type FieldTy = Node;
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasGenericPermField<FPrev, Prev> for Node<Prev, Next> {
+    type FieldTy<FieldPerm: PtrPerm> = Option<Ptr<FieldPerm, Node>>;
     type ChangePerm<NewPrev: PtrPerm> = Node<NewPrev, Next>;
-    unsafe fn field_raw(
-        ptr: std::ptr::NonNull<Self>,
-        _tok: FPrev,
-    ) -> std::ptr::NonNull<Option<Ptr<Prev, Self::FieldTy>>> {
+    unsafe fn field_raw(ptr: NonNull<Self>, _tok: FPrev) -> NonNull<Option<Ptr<Prev, Node>>> {
         unsafe { NonNull::new_unchecked(&raw mut (*ptr.as_ptr()).prev) }
     }
 }
-unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasOptPtrField<FNext, Next> for Node<Prev, Next> {
-    type FieldTy = Node;
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasOptPtrField<FPrev, Prev> for Node<Prev, Next> {
+    type PointeeTy = Node;
+}
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasGenericPermField<FNext, Next> for Node<Prev, Next> {
+    type FieldTy<FieldPerm: PtrPerm> = Option<Ptr<FieldPerm, Node>>;
     type ChangePerm<NewNext: PtrPerm> = Node<Prev, NewNext>;
-    unsafe fn field_raw(
-        ptr: std::ptr::NonNull<Self>,
-        _tok: FNext,
-    ) -> std::ptr::NonNull<Option<Ptr<Next, Self::FieldTy>>> {
+    unsafe fn field_raw(ptr: NonNull<Self>, _tok: FNext) -> NonNull<Option<Ptr<Next, Node>>> {
         unsafe { NonNull::new_unchecked(&raw mut (*ptr.as_ptr()).next) }
     }
+}
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasOptPtrField<FNext, Next> for Node<Prev, Next> {
+    type PointeeTy = Node;
 }
 
 /// A linked list with backward pointers, with ownership that follows the forward pointers.

@@ -145,20 +145,15 @@ where
     }
 }
 
-/// A type that has an `Option<Ptr<Perm, FieldTy>>` field where `Perm` is a generic argument.
-pub unsafe trait HasOptPtrField<FieldTok, FieldPerm>: ErasePerms
+/// Extension trait for `HasGenericPermField` where the field of the type is `Option<Ptr<Perm,
+/// PointeeTy>>`.
+pub unsafe trait HasOptPtrField<FieldTok, FieldPerm>:
+    HasGenericPermField<FieldTok, FieldPerm>
 where
     FieldTok: Copy,
     FieldPerm: PtrPerm,
 {
-    type FieldTy;
-    type ChangePerm<NewPerm: PtrPerm>: HasOptPtrField<FieldTok, NewPerm>
-        + ErasePerms<Erased = Self::Erased>;
-
-    unsafe fn field_raw(
-        ptr: NonNull<Self>,
-        _tok: FieldTok,
-    ) -> NonNull<Option<Ptr<FieldPerm, Self::FieldTy>>>;
+    type PointeeTy;
 
     /// Read the contents of the field, taking the permissions with it as much as possible.
     fn read_field<'this, 'field, PtrPerm>(
@@ -166,12 +161,22 @@ where
         tok: FieldTok,
     ) -> (
         Ptr<PtrPerm, Self::ChangePerm<PointsTo<'field>>>,
-        Option<Ptr<AccessThroughType<'field, PtrPerm, FieldPerm>, Self::FieldTy>>,
+        Option<Ptr<AccessThroughType<'field, PtrPerm, FieldPerm>, Self::PointeeTy>>,
     )
     where
         PtrPerm: HasRead<'this>,
         FieldPerm: IsPointsTo<'field>,
         FieldPerm::Access: AccessThrough<PtrPerm::Access>,
+        Self: HasGenericPermField<
+            FieldTok,
+            FieldPerm,
+            FieldTy<FieldPerm> = Option<Ptr<FieldPerm, Self::PointeeTy>>,
+        >,
+        Self: HasGenericPermField<
+            FieldTok,
+            FieldPerm,
+            FieldTy<PointsTo<'field>> = Option<Ptr<PointsTo<'field>, Self::PointeeTy>>,
+        >,
     {
         let this = self.copy();
         self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
@@ -188,15 +193,25 @@ where
     fn write_field<'this, 'field, PtrPerm, NewPerm>(
         self: Ptr<PtrPerm, Self>,
         tok: FieldTok,
-        new: Option<Ptr<NewPerm, Self::FieldTy>>,
+        new: Option<Ptr<NewPerm, Self::PointeeTy>>,
     ) -> (
         Ptr<PtrPerm, Self::ChangePerm<NewPerm>>,
-        Option<Ptr<FieldPerm, Self::FieldTy>>,
+        Option<Ptr<FieldPerm, Self::PointeeTy>>,
     )
     where
         PtrPerm: HasOwn<'this>,
         FieldPerm: IsPointsTo<'field>,
         NewPerm: self::PtrPerm,
+        Self: HasGenericPermField<
+            FieldTok,
+            FieldPerm,
+            FieldTy<FieldPerm> = Option<Ptr<FieldPerm, Self::PointeeTy>>,
+        >,
+        Self: HasGenericPermField<
+            FieldTok,
+            FieldPerm,
+            FieldTy<NewPerm> = Option<Ptr<NewPerm, Self::PointeeTy>>,
+        >,
     {
         let this = self.copy();
         self.get_field(tok).unpack_lt(|(ptr_to_field, wand)| {
@@ -217,24 +232,44 @@ where
     fn write_field_permission<'this, 'field, PtrPerm, NewPerm>(
         self: Ptr<PtrPerm, Self>,
         tok: FieldTok,
-        new: VPtr<NewPerm, Self::FieldTy>,
+        new: VPtr<NewPerm, Self::PointeeTy>,
     ) -> Ptr<PtrPerm, Self::ChangePerm<NewPerm>>
     where
         PtrPerm: HasOwn<'this>,
         FieldPerm: IsPointsTo<'field>,
         NewPerm: IsPointsTo<'field>,
+        Self: HasGenericPermField<
+            FieldTok,
+            FieldPerm,
+            FieldTy<FieldPerm> = Option<Ptr<FieldPerm, Self::PointeeTy>>,
+        >,
+        Self: HasGenericPermField<
+            FieldTok,
+            FieldPerm,
+            FieldTy<NewPerm> = Option<Ptr<NewPerm, Self::PointeeTy>>,
+        >,
     {
         self.map_virtual(|v| v.write_field_permission_virt(tok, new))
     }
     fn write_field_permission_virt<'this, 'field, PtrPerm, NewPerm>(
         self: VPtr<PtrPerm, Self>,
         tok: FieldTok,
-        new: VPtr<NewPerm, Self::FieldTy>,
+        new: VPtr<NewPerm, Self::PointeeTy>,
     ) -> VPtr<PtrPerm, Self::ChangePerm<NewPerm>>
     where
         PtrPerm: HasOwn<'this>,
         FieldPerm: IsPointsTo<'field>,
         NewPerm: IsPointsTo<'field>,
+        Self: HasGenericPermField<
+            FieldTok,
+            FieldPerm,
+            FieldTy<FieldPerm> = Option<Ptr<FieldPerm, Self::PointeeTy>>,
+        >,
+        Self: HasGenericPermField<
+            FieldTok,
+            FieldPerm,
+            FieldTy<NewPerm> = Option<Ptr<NewPerm, Self::PointeeTy>>,
+        >,
     {
         self.get_field_virt(tok).unpack_lt(|(ptr_to_field, wand)| {
             // ptr_to_field: VPtr<PointsTo<'sub, PtrPerm::Access>, Option<Ptr<FieldPerm, Self::FieldTy>>>,
@@ -252,21 +287,17 @@ where
     where
         PtrPerm: HasOwn<'this>,
         FieldPerm: IsPointsTo<'field>,
+        Self: HasGenericPermField<
+            FieldTok,
+            FieldPerm,
+            FieldTy<FieldPerm> = Option<Ptr<FieldPerm, Self::PointeeTy>>,
+        >,
+        Self: HasGenericPermField<
+            FieldTok,
+            FieldPerm,
+            FieldTy<PointsTo<'field>> = Option<Ptr<PointsTo<'field>, Self::PointeeTy>>,
+        >,
     {
         self.write_field_permission_virt(tok, VPtr::permissionless())
-    }
-}
-unsafe impl<FieldTok, FieldPerm, T> HasGenericPermField<FieldTok, FieldPerm> for T
-where
-    Self: HasOptPtrField<FieldTok, FieldPerm>,
-    FieldTok: Copy,
-    FieldPerm: PtrPerm,
-{
-    type FieldTy<Perm: PtrPerm> =
-        Option<Ptr<Perm, <Self as HasOptPtrField<FieldTok, FieldPerm>>::FieldTy>>;
-    type ChangePerm<NewPerm: PtrPerm> =
-        <Self as HasOptPtrField<FieldTok, FieldPerm>>::ChangePerm<NewPerm>;
-    unsafe fn field_raw(ptr: NonNull<Self>, tok: FieldTok) -> NonNull<Self::FieldTy<FieldPerm>> {
-        unsafe { <Self as HasOptPtrField<FieldTok, FieldPerm>>::field_raw(ptr, tok) }
     }
 }
