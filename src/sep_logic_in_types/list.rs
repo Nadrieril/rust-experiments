@@ -491,7 +491,7 @@ impl<'this, 'first> ListCursorInner<'this, 'first> {
     }
 
     /// Helper: split off the forward list that includes the current node and the rest.
-    fn split<R>(
+    fn split_after<R>(
         ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>,
         f: impl for<'prev, 'next> FnOnce(
             Ptr<Own<'this>, Node<Own<'prev, NodeStateBwd<'prev, 'this>>, PointsTo<'next>>>,
@@ -520,8 +520,8 @@ impl<'this, 'first> ListCursorInner<'this, 'first> {
         })
     }
 
-    /// Helper: reverse `split`.
-    fn unsplit<'prev, 'next>(
+    /// Helper: reverse `split_after`.
+    fn unsplit_after<'prev, 'next>(
         ptr: Ptr<Own<'this>, Node<Own<'prev, NodeStateBwd<'prev, 'this>>, PointsTo<'next>>>,
         next: Option<NonEmptyList<'this>>,
     ) -> Ptr<Own<'this, NodeStateCursor<'this>>, Node> {
@@ -536,13 +536,59 @@ impl<'this, 'first> ListCursorInner<'this, 'first> {
         })
     }
 
+    /// Helper: split off the forward list that starts with the next node.
+    fn split_before<R>(
+        ptr: Ptr<Own<'this, NodeStateCursor<'this>>, Node>,
+        f: impl for<'prev> FnOnce(
+            Option<Ptr<Own<'prev, NodeStateBwd<'prev, 'this>>, Node>>,
+            NonEmptyList<'prev>,
+        ) -> R,
+    ) -> R {
+        let ptr = NodeStateCursor::unpack(ptr);
+        ptr.unpack_target_lt(|ptr| {
+            ptr.unpack_target_lt(|ptr| {
+                let (ptr, prev) = ptr.read_field(FPrev);
+                let ptr = pack_target_lt(ptr);
+                let ptr = NodeStateFwd::pack(ptr);
+                let list = NonEmptyList::from_ptr(ptr);
+                f(prev, list)
+            })
+        })
+    }
+
+    /// Helper: reverse `split_before`.
+    fn unsplit_before<'prev>(
+        prev: Option<Ptr<Own<'prev, NodeStateBwd<'prev, 'this>>, Node>>,
+        list: NonEmptyList<'prev>,
+    ) -> ExistsLt!(<'new> = Ptr<Own<'new, NodeStateCursor<'new>>, Node>) {
+        list.into_ptr().unpack_lt(|ptr| {
+            let ptr = NodeStateFwd::unpack(ptr);
+            ptr.unpack_target_lt(|ptr| {
+                // Write to prev.next
+                let prev = prev.map(|prev| {
+                    let prev = NodeStateBwd::unpack(prev);
+                    prev.unpack_target_lt(|prev| {
+                        let (prev, _) = prev.write_field(FNext, Some(ptr.weak_ref()));
+                        let prev = pack_target_lt(prev);
+                        NodeStateBwd::pack(prev)
+                    })
+                });
+                let (ptr, _) = ptr.write_field(FPrev, prev);
+                let ptr = pack_target_lt(ptr);
+                let ptr = pack_target_lt(ptr);
+                let ptr = NodeStateCursor::pack(ptr);
+                ExistsLt::pack_lt(ptr)
+            })
+        })
+    }
+
     pub fn insert_after(self, val: usize) -> Self {
-        Self::split(self.ptr, |ptr, next| {
+        Self::split_after(self.ptr, |ptr, next| {
             let next = match next {
                 Some(next) => next.prepend_inner(val),
                 None => NonEmptyList::new(val, Some(ptr.weak_ref())),
             };
-            let ptr = Self::unsplit(ptr, Some(next));
+            let ptr = Self::unsplit_after(ptr, Some(next));
             // ptr: Ptr<ExistsLt!(Own<'_, NodeStateCursor<'_>>), Node>
             Self {
                 ptr,
@@ -551,13 +597,26 @@ impl<'this, 'first> ListCursorInner<'this, 'first> {
         })
     }
 
+    pub fn insert_before(self, val: usize) -> ErasedListCursorInner {
+        Self::split_before(self.ptr, |prev, list| {
+            let list = list.prepend_inner(val);
+            Self::unsplit_before(prev, list).unpack_lt(|ptr| {
+                ListCursorInner {
+                    ptr,
+                    first: self.first,
+                }
+                .pack_lt()
+            })
+        })
+    }
+
     pub fn remove_after(self) -> (Self, Option<usize>) {
-        Self::split(self.ptr, |ptr, next| {
+        Self::split_after(self.ptr, |ptr, next| {
             let (next, val) = match next {
                 Some(next) => next.pop_front(),
                 None => (None, None),
             };
-            let ptr = Self::unsplit(ptr, next);
+            let ptr = Self::unsplit_after(ptr, next);
             let this = Self {
                 ptr,
                 first: self.first,
@@ -789,6 +848,20 @@ impl ListCursor<'_> {
         }
     }
 
+    // Panics if the list is empty, as there's nothing before which to insert.
+    pub fn insert_before(mut self, val: usize) -> Self {
+        let inner = self.inner.take().unwrap();
+        inner.unpack_lt(|inner| {
+            inner.unpack_lt(|inner| {
+                let inner = inner.insert_before(val);
+                Self {
+                    inner: Some(inner),
+                    list: self.list.take(),
+                }
+            })
+        })
+    }
+
     pub fn remove_after(mut self) -> (Self, Option<usize>) {
         if let Some(inner) = self.inner.take() {
             inner.unpack_lt(|inner| {
@@ -890,6 +963,7 @@ fn test() {
     let cursor = cursor.prev().unwrap();
     let (cursor, _) = cursor.remove_after();
     assert_eq!(cursor.val().unwrap(), &2);
+    let cursor = cursor.insert_before(43);
     let cursor = cursor.prev().unwrap();
     assert_eq!(cursor.val().unwrap(), &1);
     let cursor = cursor.prev().unwrap();
@@ -897,9 +971,9 @@ fn test() {
     let cursor = cursor.next().unwrap();
     drop(cursor);
 
-    assert_eq!(list.iter().copied().collect::<Vec<_>>(), vec![0, 1, 2]);
+    assert_eq!(list.iter().copied().collect::<Vec<_>>(), vec![0, 1, 43, 2]);
     for x in list.iter_mut() {
         *x += 1;
     }
-    assert_eq!(list.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
+    assert_eq!(list.iter().copied().collect::<Vec<_>>(), vec![1, 2, 44, 3]);
 }
