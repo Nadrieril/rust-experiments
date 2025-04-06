@@ -923,18 +923,20 @@ mod wand_cursor {
     // hence the wand must enforce I don't change prev.
     // I can never change self.prev. I might be able to change it through `next.prev` tho.
 
-    /// A Node whose `prev` and `next` fields are each a forward-owned linked list with back-edges.
-    /// This functions as a doubly-linked-list zipper.
+    /// A cursor into a doubly-linked list. Owns the forward part of the list as normal, and uses
+    /// wands to keep ownership of the previous nodes.
+    // lmaooo this is an infinite backwards list x)))
     struct NodeStateWandCursor<'this>(InvariantLifetime<'this>);
     impl PointeePred for NodeStateWandCursor<'_> {}
     impl<'this> PackedPredicate<'this, Node> for NodeStateWandCursor<'this> {
         type Unpacked = ExistsLt!(<'prev> =
-            <NodeStateFwd<'this, 'prev> as PackedPredicate<'this, Node>>::Unpacked
-            // TODO: also:
-            // Wand<
-            //     VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-            //     VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
-            // >
+            Tagged<
+                <NodeStateFwd<'this, 'prev> as PackedPredicate<'this, Node>>::Unpacked,
+                Wand<
+                    VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+                    VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
+                >,
+            >
         );
     }
 
@@ -943,18 +945,13 @@ mod wand_cursor {
     fn next_wand<'this>(
         ptr: Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
     ) -> Result<
-        ExistsLt!(<'next> = (
-            Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>,
-            Wand<
-                VPtr<Own<'next, NodeStateFwd<'next, 'this>>, Node>,
-                VPtr<Own<'this, NodeStateWandCursor<'this>>, Node>,
-            >
-        )),
+        ExistsLt!(<'next> = Ptr<Own<'next, NodeStateWandCursor<'next>>, Node>),
         Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
     > {
         let this = ptr.copy();
         let ptr = NodeStateWandCursor::unpack(ptr);
         ptr.unpack_target_lt(|ptr| {
+            let (ptr, old_wand) = ptr.untag_target();
             ptr.unpack_target_lt(|ptr| {
                 // ptr: Ptr<
                 //     Own<'this>,
@@ -977,22 +974,63 @@ mod wand_cursor {
                                 .write_opt_ptr_perm_wand()
                                 .then(wand)
                                 .then(vpack_target_lt_wand())
+                                .then(VPtr::tag_target_wand(old_wand))
                                 // Forget that wand_output.next = this
                                 .then(vpack_target_lt_wand())
                                 .then(NodeStateWandCursor::pack_wand());
-                            Ok(ExistsLt::pack_lt((next, wand)))
+                            let next = NodeStateFwd::unpack(next);
+                            let next = next.tag_target(wand);
+                            let next = pack_target_lt(next);
+                            let next = NodeStateWandCursor::pack(next);
+                            Ok(ExistsLt::pack_lt(next))
                         }
                         None => {
                             let ptr_to_field = ptr_to_field.write(None);
                             let ptr = wand.apply(ptr_to_field.into_virtual());
                             let ptr = this.with_virtual(ptr);
                             let ptr = pack_target_lt(ptr);
+                            let ptr = ptr.tag_target(old_wand);
                             let ptr = pack_target_lt(ptr);
                             let ptr = NodeStateWandCursor::pack(ptr);
                             Err(ptr)
                         }
                     }
                 })
+            })
+        })
+    }
+
+    /// Move the cursor backwards.
+    #[expect(unused)]
+    fn prev_wand<'this>(
+        ptr: Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
+    ) -> Result<
+        ExistsLt!(<'prev> = Ptr<Own<'prev, NodeStateWandCursor<'prev>>, Node>),
+        Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
+    > {
+        let this = ptr.copy();
+        let ptr = NodeStateWandCursor::unpack(ptr);
+        ptr.unpack_target_lt(|ptr| {
+            let (ptr, wand) = ptr.untag_target();
+            ptr.unpack_target_lt(|ptr| {
+                let (ptr, prev) = ptr.read_field(FPrev);
+                match prev {
+                    Some(prev) => {
+                        let ptr = pack_target_lt(ptr);
+                        let ptr = NodeStateFwd::pack(ptr);
+                        let (ptr, vptr) = (ptr.copy(), ptr.into_virtual());
+                        let vprev = wand.apply(vptr);
+                        let prev = prev.with_virtual(vprev);
+                        Ok(ExistsLt::pack_lt(prev))
+                    }
+                    None => {
+                        let ptr = pack_target_lt(ptr);
+                        let ptr = ptr.tag_target(wand);
+                        let ptr = pack_target_lt(ptr);
+                        let ptr = NodeStateWandCursor::pack(ptr);
+                        Err(ptr)
+                    }
+                }
             })
         })
     }
