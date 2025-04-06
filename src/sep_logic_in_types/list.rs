@@ -949,6 +949,33 @@ mod cursor_via_wand {
                     VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
                 >,
             >
+            // TODO: add a wand to go back to the start.
+            //  Wand<
+            //      VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+            //      (
+            //          VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
+            //          Wand<
+            //              VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
+            //              VPtr<Own<'first, NodeStateFwd<'first, 'static>>, Node>,
+            //          >,
+            //      )
+            //  >,
+            //
+            //  Wand<
+            //      VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+            //      Choice<
+            //          VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
+            //          VPtr<Own<'first, NodeStateFwd<'first, 'static>>, Node>,
+            //      >
+            //  >,
+            // where Choice is additive conjunction
+            // Choice<A, B> -> A
+            // Choice<A, B> -> B
+            // (A, Wand<A, B>) -> Choice<A, B>
+            // Wand<A, B>.or_id() -> Wand<A, Choice<A, B>>
+            //
+            // To initialize: Wand::constant(VPtr::impossible()).or_id().swap()
+            // To next: compose this->prev with (prev->first).or_id()
         );
     }
 
