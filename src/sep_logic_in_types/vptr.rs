@@ -19,6 +19,15 @@ impl<Perm: PtrPerm, T> VPtr<Perm, T> {
             phantom: PhantomData,
         }
     }
+    /// The `'static` brand corresponds to no possible pointer. We allow crafting arbitrary
+    /// permissions to it to simplify wand usage.
+    pub fn new_impossible() -> Self
+    where
+        Perm: IsPointsTo<'static>,
+    {
+        unsafe { Self::new(Perm::new()) }
+    }
+
     /// Helper.
     unsafe fn with_perm<'this, NewPerm>(self, perm: NewPerm) -> VPtr<NewPerm, T>
     where

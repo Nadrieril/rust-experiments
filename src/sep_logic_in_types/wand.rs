@@ -29,14 +29,24 @@ impl<I, O> Wand<I, O> {
         unsafe { Wand::mimic_closure(f) }
     }
 
+    /// Constant wand that returns the provided value.
+    pub fn constant(x: O) -> Self
+    where
+        O: Phantom,
+    {
+        unsafe { Wand::mimic_closure(|_| x) }
+    }
+
     /// Compose two wands.
     pub fn then<U>(self, _other: Wand<O, U>) -> Wand<I, U> {
         unsafe { Wand::from_thin_air() }
     }
-}
 
-impl<I, O: Phantom> Wand<I, O> {
-    pub fn apply(self, _x: I) -> O {
+    /// Apply the wand to the given value, returning the output.
+    pub fn apply(self, _x: I) -> O
+    where
+        O: Phantom,
+    {
         unsafe { O::new() }
     }
 }
