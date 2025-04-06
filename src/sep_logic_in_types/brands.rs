@@ -1,5 +1,18 @@
 pub use higher_kinded_types::ForLt as PackLt;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, mem::MaybeUninit};
+
+/// Types that are transmutable to/from `PhantomData`.
+///
+/// Safety: must be transmutable to/from `PhantomData` and have no `Drop` implementation.
+pub unsafe trait Phantom: Sized {
+    /// Create a value of that type.
+    ///
+    /// Safety: the safety invariant of the created value.
+    unsafe fn new() -> Self {
+        unsafe { MaybeUninit::zeroed().assume_init() }
+    }
+}
+unsafe impl<T> Phantom for PhantomData<T> {}
 
 // Copied from `ghost_cell`.
 pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;

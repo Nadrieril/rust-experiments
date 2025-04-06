@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use super::{ptr::PtrPerm, vptr::VPtr};
+use super::brands::Phantom;
 
 /// Represents a side-effect-free `FnOnce(I) -> O` between ZSTs. This can be used to represent
 /// complex permission operations that are unobservable at runtime.
@@ -10,6 +10,7 @@ use super::{ptr::PtrPerm, vptr::VPtr};
 /// access to a field of a struct leaves a wand that can be used to recover full ownership of the
 /// struct.
 pub struct Wand<I, O>(PhantomData<fn(I) -> O>);
+unsafe impl<I, O> Phantom for Wand<I, O> {}
 
 impl<I, O> Wand<I, O> {
     /// Safety: the constructed wand must be valid.
@@ -34,8 +35,8 @@ impl<I, O> Wand<I, O> {
     }
 }
 
-impl<I, Perm: PtrPerm, T> Wand<I, VPtr<Perm, T>> {
-    pub fn apply(self, _x: I) -> VPtr<Perm, T> {
-        unsafe { VPtr::new(Perm::new()) }
+impl<I, O: Phantom> Wand<I, O> {
+    pub fn apply(self, _x: I) -> O {
+        unsafe { O::new() }
     }
 }

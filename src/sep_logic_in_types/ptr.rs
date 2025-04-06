@@ -12,12 +12,7 @@ pub struct Ptr<Perm, T> {
 }
 
 /// Permission token on a pointer.
-/// Safety: must be transmutable with `PhantomData`.
-pub unsafe trait PtrPerm: Sized {
-    /// Unsafely create a new permission token.
-    /// Safety: ensure the permission is correct for the pointee it will get attached to.
-    unsafe fn new() -> Self;
-}
+pub unsafe trait PtrPerm: Phantom {}
 
 impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     pub unsafe fn new_with_perm(ptr: NonNull<T>, perm: Perm) -> Self {

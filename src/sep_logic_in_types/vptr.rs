@@ -10,6 +10,7 @@ pub struct VPtr<Perm, T> {
     /// values of `Perm`, which seems hard to express, if at all possible.
     phantom: PhantomData<*mut T>,
 }
+unsafe impl<Perm: Phantom, T> Phantom for VPtr<Perm, T> {}
 
 impl<Perm: PtrPerm, T> VPtr<Perm, T> {
     pub unsafe fn new(perm: Perm) -> Self {

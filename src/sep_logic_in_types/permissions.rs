@@ -12,12 +12,8 @@ pub struct PointsTo<'this, Access: PtrAccess = (), Pred: PointeePred = ()>(
     PhantomData<Pred>,
     InvariantLifetime<'this>,
 );
-
-unsafe impl<'this, Access: PtrAccess, Pred: PointeePred> PtrPerm for PointsTo<'this, Access, Pred> {
-    unsafe fn new() -> Self {
-        Self(PhantomData, PhantomData, InvariantLifetime::default())
-    }
-}
+unsafe impl<'this, Access: PtrAccess, Pred: PointeePred> Phantom for PointsTo<'this, Access, Pred> {}
+unsafe impl<'this, Access: PtrAccess, Pred: PointeePred> PtrPerm for PointsTo<'this, Access, Pred> {}
 
 /// An access permission through a pointer.
 pub trait PtrAccess {}
@@ -113,16 +109,14 @@ impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Ptr<InnerPerm, T>> {
 
 pub use noperm::*;
 mod noperm {
+    use super::super::brands::Phantom;
     use super::super::ptr::*;
     use std::marker::PhantomData;
 
     /// Token that grants no permissions to a pointer.
     pub struct NoPerm(PhantomData<()>);
-    unsafe impl PtrPerm for NoPerm {
-        unsafe fn new() -> Self {
-            NoPerm(PhantomData)
-        }
-    }
+    unsafe impl Phantom for NoPerm {}
+    unsafe impl PtrPerm for NoPerm {}
 }
 
 pub use own::*;
