@@ -19,9 +19,15 @@
 //! have the correct pointee type. This is because full ownership is needed for nontrivial
 //! type-changing operations.
 //!
-//! Predicates are how we encode complex datastructures. A typical predicate is a ZST implementing
-//! `PackedPredicate`. Such a predicate stands for knowledge about the pointers inside the pointee.
-//! See the doubly-linked list example for what this looks like.
+//! When we go beyond tree-shaped ownership, we start wanting ownership to evolve at runtime. For
+//! example, when moving a cursor through a doubly-linked-list, one could say the cursor pointer
+//! has ownership over the pointed-to list node, which then has ownership over the rest of the list
+//! by following prev/next pointers. To represent this in types, we need type-changing operations:
+//! a same node in memory may have different types at different moments to reflect that changing
+//! ownership. We end up needing to change types between whole recursive datatypes; this is what
+//! pointee predicates are for. A typical predicate is a ZST implementing `PackedPredicate`. Such a
+//! predicate stands for knowledge about the pointers inside the pointee. See the doubly-linked
+//! list example for what this looks like.
 //!
 //! To manage ADTs that contain pointers see the `HasPermField` trait.
 //!
@@ -39,6 +45,12 @@
 // If I use `'static` as the unknown pointer, could get rid of `NoPerm` and inline
 // `PointsTo` inside `Ptr`. Ah but `'static` already means impossible.
 // -> not sure enough of my API for that. need to try doubly-linked tree first.
+// `Pred` is actually just an override of the pointee type :thinking:
+//
+// I think it's time to try the tree.
+//
+// TODO: we do variance wrong. maybe store the real type in the permission, and force the "layout"
+// type to be `'static`.
 
 mod adts;
 mod brands;

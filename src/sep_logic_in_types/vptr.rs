@@ -105,6 +105,18 @@ impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     {
         unsafe { self.cast_ty() }
     }
+
+    /// `write_opt_ptr_perm` implemented as a wand.
+    pub fn write_opt_ptr_perm_wand<'this, 'inner, NewInnerPerm>(
+        self,
+    ) -> Wand<VPtr<NewInnerPerm, T>, VPtr<OuterPerm, Option<Ptr<NewInnerPerm, T>>>>
+    where
+        OuterPerm: HasOwn<'this>,
+        InnerPerm: IsPointsTo<'inner>,
+        NewInnerPerm: IsPointsTo<'inner>,
+    {
+        unsafe { Wand::mimic_closure(|new| self.write_opt_ptr_perm(new)) }
+    }
 }
 
 impl<'this, T> VPtr<PointsTo<'this>, T> {
@@ -134,8 +146,18 @@ where
 pub fn vpack_target_lt<'this, Perm: PtrPerm, T: PackLt>(
     ptr: VPtr<Perm, T::Of<'this>>,
 ) -> VPtr<Perm, ExistsLt<T>> {
-    // Safety: `ExistsLt` is `repr(transparent)`
-    unsafe { ptr.cast_ty() }
+    vpack_target_lt_wand().apply(ptr)
+}
+
+/// Hide the lifetime in a pointer target.
+pub fn vpack_target_lt_wand<'this, Perm: PtrPerm, T: PackLt>(
+) -> Wand<VPtr<Perm, T::Of<'this>>, VPtr<Perm, ExistsLt<T>>> {
+    unsafe {
+        Wand::mimic_fn(|ptr| {
+            // Safety: `ExistsLt` is `repr(transparent)`
+            ptr.cast_ty()
+        })
+    }
 }
 
 impl<Perm, T> Receiver for VPtr<Perm, T> {

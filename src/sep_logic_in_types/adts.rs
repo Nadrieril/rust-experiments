@@ -53,7 +53,7 @@ impl<Perm, T> Ptr<Perm, Option<T>> {
                     .cast::<T>()
             };
             let ptr = unsafe { Ptr::new_with_perm(ptr, PointsTo::new()) };
-            let wand = unsafe { Wand::from_fn(|_| self.into_virtual().cast_ty()) };
+            let wand = unsafe { Wand::mimic_closure(|_| self.into_virtual().cast_ty()) };
             Ok(ExistsLt::pack_lt((ptr, wand)))
         } else {
             Err(unsafe { self.cast_ty() })
@@ -85,6 +85,8 @@ where
         self: VPtr<PtrPerm, Self>,
         _tok: FieldTok,
     ) -> ExistsLt!(<'sub> = (
+            // What if there's a change I could do to an existential brand in FieldTy that invalidates
+            // Self?
             VPtr<PointsTo<'sub, PtrPerm::Access>, Self::FieldTy<FieldPerm>>,
             Wand<
                 VPtr<PointsTo<'sub, PtrPerm::Access>, Self::FieldTy<NewFieldPerm>>,
@@ -94,7 +96,7 @@ where
     where
         PtrPerm: HasRead<'this>, // TODO: can we relax this?
     {
-        let wand = unsafe { Wand::from_fn(|_| self.cast_ty()) };
+        let wand = unsafe { Wand::mimic_closure(|_| self.cast_ty()) };
         let ptr = unsafe { VPtr::new(PointsTo::new()) };
         ExistsLt::pack_lt((ptr, wand))
     }

@@ -64,13 +64,69 @@ impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
     );
 }
 
+// struct FwdNode<'this, 'prev, 'last> {
+//     val: usize,
+//     prev: Option<Ptr<PointsTo<'prev>, Node>>,
+//     next: Result<
+//         ExistsLt!(<'next> = (
+//             Ptr<Own<'next>, FwdNode<'next, 'this, 'last>>,
+//             Wand<
+//                 VPtr<Own<'next>, FwdNode<'next, 'this, 'last>>,
+//                 VPtr<Own<'last>, Node>, // backward
+//             >
+//         )),
+//         EqPredicate<'this, 'last>,
+//     >,
+//     // actually, why not a `Wand<VPtr<Own<'this>, Self>, ...>`?
+// }
+#[expect(unused)]
+struct FwdNode<'this, 'prev, 'first, 'last>(
+    ExistsLt!(<'next> = Node<
+        PointsTo<'prev>,
+        PointsTo<'next, (
+            VPtr<Own<'next>, FwdNode<'next, 'this, 'first, 'last>>,
+            Wand<VPtr<Own<'this>, Self>, ExistsLt!(<'nextlast> = VPtr<Own<'last>, BwdNode<'last, 'nextlast, 'first, 'last>>)>,
+        )>,
+    >),
+);
+#[expect(unused)]
+// Maybe use a derive to prove `ErasePerms` of this into `Node`. Maybe `Node` is the "layout" that
+// everything must erase to. This can also derive pack/unpack to allow safe transmutability with
+// its contents.
+struct BwdNode<'this, 'next, 'first, 'last>(
+    ExistsLt!(<'prev> = Node<
+        PointsTo<'prev, (
+            VPtr<Own<'prev>, BwdNode<'prev, 'this, 'first, 'last>>,
+            Wand<VPtr<Own<'this>, Self>, ExistsLt!(<'firstprev> = VPtr<Own<'first>, FwdNode<'first, 'firstprev, 'first, 'last>>)>,
+        )>,
+        PointsTo<'next>,
+    >),
+);
+
 /// Like `NodeStateFwd` except flipping the fields of `Node` (the "forward" pointer is in the
 /// `Node.prev` field instead).
 struct NodeStateBwd<'this, 'next>(InvariantLifetime<'this>, InvariantLifetime<'next>);
 impl PointeePred for NodeStateBwd<'_, '_> {}
 impl<'this, 'next> PackedPredicate<'this, Node> for NodeStateBwd<'this, 'next> {
+    // Question now: how to express nicely an extra wand.
+    // Maybe express a pointee predicate as a VPtr<'this, NodeWithDifferentType> :thinking:.......
+    // Maybe the real idea is a ptr-transmutable struct that expresses the actual recursive thing I
+    // want?
+    // -> no, I need to be able to express the in-between node type.
     type Unpacked = ExistsLt!(<'prev> =
         Node<Own<'prev, NodeStateBwd<'prev, 'this>>, PointsTo<'next>>
+        // Node<
+        //     WithSideData<
+        //         Own<'prev, NodeStateBwd<'prev, 'this>>,
+        //         Wand<
+        //             VPtr<Own<'prev, NodeStateBwd<'prev, 'this>>, Node>,
+        //             ExistsLt!(<'firstprev> = VPtr<Own<'first, NodeStateFwd<'first, 'firstprev>>, Node>),
+        //         >,
+        //     >,
+        //     PointsTo<'next>,
+        // >
+        // Maybe add `IsPhantom` trait that guarantees transmutability. Impl for `PointsTo` and
+        // `Wand`.
     );
 }
 
@@ -81,105 +137,6 @@ impl PointeePred for NodeStateCursor<'_> {}
 impl<'this> PackedPredicate<'this, Node> for NodeStateCursor<'this> {
     type Unpacked = ExistsLt!(<'prev, 'next> =
         Node<Own<'prev, NodeStateBwd<'prev, 'this>>, Own<'next, NodeStateFwd<'next, 'this>>>
-        // Tagged<
-        //     (Own<'prev, NodeStateBwd<'prev, 'this>>, Own<'next, NodeStateFwd<'next, 'this>>),
-        //     Node<PointsTo<'prev>, PointsTo<'next>>,
-        // >
-        // Warning: doing everything with tags may preclude having lists of pointers? maybe not:
-        // Vec<Exists!(Ptr<'_, Node<'this>>)>
-
-        // The difficulty is how to apply a predicate. Presumably it must unify the quantified
-        // lifetime with the one in the predicate somehow.
-        //
-        // Ptr<'this, T> * PointsTo<'this, PackedPred>
-        // <->
-        // Ptr<'this, T> * <PackedPred as PackedPredicate<'this, T>>::Unpacked
-        //
-        // type ErasedNode = ExistsLt!(<'prev, 'next> = Node<'prev, 'next>);
-        // impl<'prev, 'next, 'this, 'prev0> PackedPredicate<'this, Node<'prev, 'next>> for NodeStateFwd<'this, 'prev0> {
-        //     type Unpacked = (
-        //         EqPredicate<'prev, 'prev0>,
-        //         Own<'next, NodeStateFwd<'next, 'this>>>
-        //     );
-        // }
-
-        // Ptr<'this, Node>
-        // * Own<'this, NodeStateCursor<'this>>
-        // ->
-        // Ptr<'this, Node<'prev, 'next>>
-        // * Own<'prev, NodeStateBwd<'prev, 'this>>
-        // * Own<'next, NodeStateFwd<'next, 'this>>
-        // * Own<'this>
-        //
-        // fn get_field<'this, 'field, ...>(
-        //     self: Ptr<'this, PtrAccess, Node<'prev, 'next>>,
-        //     tok: FieldTok,
-        // ) -> ExistsLt!(<'sub> = (
-        //         Ptr<'sub, PtrAccess, Option<Ptr<'prev, Self::FieldTy>>>,
-        //         Wand<
-        //             Ptr<'sub, PtrAccess, Option<Ptr<'newprev, Self::FieldTy>>>,
-        //             Ptr<'this, PtrAccess, Node<'newprev, 'next>>
-        //         >,
-        //    ))
-        // where
-        //     PtrAccess: AtLeastRead
-        // ->>> same shit, just with changing lifetimes instead of predicates. still want `Access`
-        // inside the pointers for convenience. maybe moving predicates out of pointers makes
-        // sense, then inlining `PointsTo` so that all ptrs have lifetime brands? idk.
-
-        // next step: try the `PackedPredicate` with externalized predicates
-        // -> tbh, if we can't remove the need for type-changing modifications of `Node`, may not
-        // be worth it.
-        // exceptttt, we could make the predicates be an orthogonal addition? Ptr only handles
-        // Access, and we add `PredicateOn<'this, Pred>` for the sole purpose of packing/unpacking.
-        //
-        // Ptr<'this, Own, Node>
-        // * PredicateOn<'this, NodeStateCursor<'this>>
-        // -> unpack
-        // Ptr<'this, Own, Node<'prev, 'next>>
-        // * Own<'prev>
-        // * Own<'next>
-        // * PredicateOn<'prev, NodeStateBwd<'prev, 'this>>
-        // * PredicateOn<'next, NodeStateFwd<'next, 'this>>
-        // -> read next
-        // Ptr<'this, Own, Node<'prev, 'next>>
-        // * Own<'prev>
-        // * PredicateOn<'prev, NodeStateBwd<'prev, 'this>>
-        // * Ptr<'next, Own, Node>
-        // * PredicateOn<'next, NodeStateFwd<'next, 'this>>
-        // -> unpack
-        // Ptr<'this, Own, Node<'prev, 'next>>
-        // * Own<'prev>
-        // * PredicateOn<'prev, NodeStateBwd<'prev, 'this>>
-        // * Ptr<'next, Own, Node<'nextprev, 'nextnext>>
-        // * EqPredicate<'nextprev, 'this>
-        // * Own<'nextnext>
-        // * PredicateOn<'nextnext, NodeStateFwd<'nextnext, 'next>>
-        // -> apply eq & reorder
-        // Ptr<'next, Own, Node<'this, 'nextnext>>
-        // * Ptr<'this, Own, Node<'prev, 'next>>
-        // * Own<'nextnext>
-        // * Own<'prev>
-        // * PredicateOn<'prev, NodeStateBwd<'prev, 'this>>
-        // * PredicateOn<'nextnext, NodeStateFwd<'nextnext, 'next>>
-        // -> pack
-        // Ptr<'next, Own, Node<'this, 'nextnext>>
-        // * Ptr<'this, Own, Node<'prev, 'next>>
-        // * Own<'nextnext>
-        // * PredicateOn<'this, NodeStateBwd<'this, 'next>>
-        // * PredicateOn<'nextnext, NodeStateFwd<'nextnext, 'next>>
-        // -> drop ptr
-        // Ptr<'next, Own, Node<'this, 'nextnext>>
-        // * Own<'this>
-        // * Own<'nextnext>
-        // * PredicateOn<'this, NodeStateBwd<'this, 'next>>
-        // * PredicateOn<'nextnext, NodeStateFwd<'nextnext, 'next>>
-        // -> pack
-        // Ptr<'next, Own, Node<'this, 'nextnext>>
-        // * PredicateOn<'next, NodeStateCursor<'next>>
-        //
-        // this is honestly hella clean, if more verbose than today. would do away with the weird
-        // generics around `IsPointsTo`. would remove POwn vs Own.
     );
 }
 
@@ -936,6 +893,107 @@ impl Drop for ListCursor<'_> {
                 inner: None,
                 list: None,
             }
+        })
+    }
+}
+
+mod wand_cursor {
+    use super::*;
+    // TODO: wand-based cursor
+    // -> may not need the nodestates!!!!
+    // -> paves the way to one-step rewinding???
+    // the lifetime erasure will be a mess
+    // -> hah, the output of the second wand must contain the first wand, because we need to
+    // existentially erase the lifetimes together. so still need the nodestates, but with
+    // side-wands instead now.
+    //
+    // With wands, can express cursor as:
+    // ExistsLt!(<'prev> = (
+    //     Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+    //     Wand<
+    //         VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+    //         VPtr<Own<'prev, NodeStateCursor<'prev>>, Node>,
+    //     >
+    // ))
+    //
+    // Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>
+    // + Wand<Own<'this>, Own<'prev, NodeStateCursor>>
+    // -> incorrect. if I modify this.prev and use the wand, the brands tell me
+    // that this.prev.next.prev = this.prev which is no longer true.
+    // hence the wand must enforce I don't change prev.
+    // I can never change self.prev. I might be able to change it through `next.prev` tho.
+
+    /// A Node whose `prev` and `next` fields are each a forward-owned linked list with back-edges.
+    /// This functions as a doubly-linked-list zipper.
+    struct NodeStateWandCursor<'this>(InvariantLifetime<'this>);
+    impl PointeePred for NodeStateWandCursor<'_> {}
+    impl<'this> PackedPredicate<'this, Node> for NodeStateWandCursor<'this> {
+        type Unpacked = ExistsLt!(<'prev> =
+            <NodeStateFwd<'this, 'prev> as PackedPredicate<'this, Node>>::Unpacked
+            // TODO: also:
+            // Wand<
+            //     VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+            //     VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
+            // >
+        );
+    }
+
+    /// Advance the cursor, keeping the previous ownership in a wand.
+    #[expect(unused)]
+    fn next_wand<'this>(
+        ptr: Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
+    ) -> Result<
+        ExistsLt!(<'next> = (
+            Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>,
+            Wand<
+                VPtr<Own<'next, NodeStateFwd<'next, 'this>>, Node>,
+                VPtr<Own<'this, NodeStateWandCursor<'this>>, Node>,
+            >
+        )),
+        Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
+    > {
+        let this = ptr.copy();
+        let ptr = NodeStateWandCursor::unpack(ptr);
+        ptr.unpack_target_lt(|ptr| {
+            ptr.unpack_target_lt(|ptr| {
+                // ptr: Ptr<
+                //     Own<'this>,
+                //     Node<
+                //         PointsTo<'prev>,
+                //         Own<'next, NodeStateFwd<'next, 'this>>,
+                //     >,
+                // >
+                // Extract the ownership in `next` (and get a copy of that pointer).
+                ptr.get_field(FNext).unpack_lt(|(ptr_to_field, wand)| {
+                    // ptr_to_field: Ptr<Own<'sub>, Option<Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>>>,
+                    // wand takes ptr_to_field and returns full ownership of 'this
+                    let (ptr_to_field, next) = ptr_to_field.read_opt_ptr();
+                    // ptr_to_field: Ptr<Own<'sub>, Option<Ptr<PointsTo<'next>, Node>>>,
+                    // next: Option<Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>>
+                    match next {
+                        Some(next) => {
+                            let wand = ptr_to_field
+                                .into_virtual()
+                                .write_opt_ptr_perm_wand()
+                                .then(wand)
+                                .then(vpack_target_lt_wand())
+                                // Forget that wand_output.next = this
+                                .then(vpack_target_lt_wand())
+                                .then(NodeStateWandCursor::pack_wand());
+                            Ok(ExistsLt::pack_lt((next, wand)))
+                        }
+                        None => {
+                            let ptr_to_field = ptr_to_field.write(None);
+                            let ptr = wand.apply(ptr_to_field.into_virtual());
+                            let ptr = this.with_virtual(ptr);
+                            let ptr = pack_target_lt(ptr);
+                            let ptr = pack_target_lt(ptr);
+                            let ptr = NodeStateWandCursor::pack(ptr);
+                            Err(ptr)
+                        }
+                    }
+                })
+            })
         })
     }
 }

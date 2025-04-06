@@ -24,20 +24,39 @@ pub trait PackedPredicate<'this, Ty>: PointeePred + Sized {
     fn unpack_virt<A: PtrAccess>(
         ptr: VPtr<PointsTo<'this, A, Self>, Ty>,
     ) -> VPtr<PointsTo<'this, A>, Self::Unpacked> {
-        // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
-        // types) so the two types are layout-compatible. Since the definition of `Self` as a
-        // predicate is the effect of this function, this is definitionally a correct cast wrt
-        // permissions.
-        unsafe { ptr.cast_pred().cast_ty() }
+        Self::unpack_wand().apply(ptr)
     }
     /// Reverse of `unpack`.
     fn pack_virt<A: PtrAccess>(
         ptr: VPtr<PointsTo<'this, A>, Self::Unpacked>,
     ) -> VPtr<PointsTo<'this, A, Self>, Ty> {
-        // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
-        // types) so the two types are layout-compatible. Since the definition of `Self` as a
-        // predicate is the effect of this function, this is definitionally a correct cast wrt
-        // permissions.
-        unsafe { ptr.cast_pred().cast_ty() }
+        Self::pack_wand().apply(ptr)
+    }
+    /// Given a pointer with `Self` permission, turn it into a pointer to the type with permissions
+    /// applied.
+    fn unpack_wand<A: PtrAccess>(
+    ) -> Wand<VPtr<PointsTo<'this, A, Self>, Ty>, VPtr<PointsTo<'this, A>, Self::Unpacked>> {
+        unsafe {
+            Wand::mimic_fn(|ptr| {
+                // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
+                // types) so the two types are layout-compatible. Since the definition of `Self` as a
+                // predicate is the effect of this function, this is definitionally a correct cast wrt
+                // permissions.
+                ptr.cast_pred().cast_ty()
+            })
+        }
+    }
+    /// Reverse of `unpack`.
+    fn pack_wand<A: PtrAccess>(
+    ) -> Wand<VPtr<PointsTo<'this, A>, Self::Unpacked>, VPtr<PointsTo<'this, A, Self>, Ty>> {
+        unsafe {
+            Wand::mimic_fn(|ptr| {
+                // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
+                // types) so the two types are layout-compatible. Since the definition of `Self` as a
+                // predicate is the effect of this function, this is definitionally a correct cast wrt
+                // permissions.
+                ptr.cast_pred().cast_ty()
+            })
+        }
     }
 }
