@@ -56,36 +56,34 @@ unsafe impl<Prev: PtrPerm, Next: PtrPerm, UnusedPerm: PtrPerm> HasGenericPermFie
 }
 
 /// A linked list with backward pointers, with ownership that follows the forward pointers.
-struct NodeStateFwd<'this, 'prev>(#[allow(unused)] NodeStateFwdUnpacked<'this, 'prev>);
-type NodeStateFwdUnpacked<'this, 'prev> = ExistsLt!(<'next> =
-    Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>
+struct FwdNode<'this, 'prev>(#[allow(unused)] FwdNodeUnpacked<'this, 'prev>);
+type FwdNodeUnpacked<'this, 'prev> = ExistsLt!(<'next> =
+    Node<PointsTo<'prev>, Own<'next, FwdNode<'next, 'this>>>
 );
 
-impl PointeePred for NodeStateFwd<'_, '_> {}
-impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
-    type Unpacked = NodeStateFwdUnpacked<'this, 'prev>;
+impl PointeePred for FwdNode<'_, '_> {}
+impl<'this, 'prev> PackedPredicate<'this, Node> for FwdNode<'this, 'prev> {
+    type Unpacked = FwdNodeUnpacked<'this, 'prev>;
 }
 
 /// A cursor into a doubly-linked list. Owns the forward part of the list as normal, and uses
 /// wands to keep ownership of the previous nodes.
-struct NodeStateWandCursor<'this, 'first>(
-    #[allow(unused)] NodeStateWandCursorUnpacked<'this, 'first>,
-);
-type NodeStateWandCursorUnpacked<'this, 'first> = ExistsLt!(<'prev> =
+struct CursorNode<'this, 'first>(#[allow(unused)] CursorNodeUnpacked<'this, 'first>);
+type CursorNodeUnpacked<'this, 'first> = ExistsLt!(<'prev> =
     Tagged<
-        NodeStateFwdUnpacked<'this, 'prev>,
+        FwdNodeUnpacked<'this, 'prev>,
         Wand<
-            VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+            VPtr<Own<'this, FwdNode<'this, 'prev>>, Node>,
             Choice<
-                VPtr<Own<'prev, NodeStateWandCursor<'prev, 'first>>, Node>,
-                VPtr<Own<'first, NodeStateFwd<'first, 'static>>, Node>,
+                VPtr<Own<'prev, CursorNode<'prev, 'first>>, Node>,
+                VPtr<Own<'first, FwdNode<'first, 'static>>, Node>,
             >,
         >,
     >
 );
-impl PointeePred for NodeStateWandCursor<'_, '_> {}
-impl<'this, 'first> PackedPredicate<'this, Node> for NodeStateWandCursor<'this, 'first> {
-    type Unpacked = NodeStateWandCursorUnpacked<'this, 'first>;
+impl PointeePred for CursorNode<'_, '_> {}
+impl<'this, 'first> PackedPredicate<'this, Node> for CursorNode<'this, 'first> {
+    type Unpacked = CursorNodeUnpacked<'this, 'first>;
 }
 
 use list_helpers::NonEmptyList;
@@ -93,29 +91,25 @@ mod list_helpers {
     use super::*;
 
     pub struct NonEmptyList<'prev>(
-        ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>),
+        ExistsLt!(<'this> = Ptr<Own<'this, FwdNode<'this, 'prev>>, Node>),
     );
 
     impl<'prev> NonEmptyList<'prev> {
         pub fn new(val: usize, prev: Option<Ptr<PointsTo<'prev>, Node>>) -> Self {
             prepend_inner(Err(prev), val)
         }
-        pub fn from_ptr<'this>(ptr: Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) -> Self {
+        pub fn from_ptr<'this>(ptr: Ptr<Own<'this, FwdNode<'this, 'prev>>, Node>) -> Self {
             Self(ExistsLt::pack_lt(ptr))
         }
-        pub fn into_ptr(
-            self,
-        ) -> ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
+        pub fn into_ptr(self) -> ExistsLt!(<'this> = Ptr<Own<'this, FwdNode<'this, 'prev>>, Node>) {
             self.0
         }
-        pub fn as_ptr(
-            &self,
-        ) -> &ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
+        pub fn as_ptr(&self) -> &ExistsLt!(<'this> = Ptr<Own<'this, FwdNode<'this, 'prev>>, Node>) {
             &self.0
         }
         pub fn as_ptr_mut(
             &mut self,
-        ) -> &mut ExistsLt!(<'this> = Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>) {
+        ) -> &mut ExistsLt!(<'this> = Ptr<Own<'this, FwdNode<'this, 'prev>>, Node>) {
             &mut self.0
         }
 
@@ -124,26 +118,26 @@ mod list_helpers {
         }
         pub fn pop_front(self) -> (Option<Self>, Option<usize>) {
             self.into_ptr().unpack_lt(|ptr| {
-                let ptr = NodeStateFwd::unpack(ptr);
+                let ptr = FwdNode::unpack(ptr);
                 ptr.unpack_target_lt(|ptr| {
                     // ptr: Ptr<
                     //     Own<'this>,
                     //     Node<
                     //         PointsTo<'prev>,
-                    //         Own<'next, NodeStateFwd<'next, 'this>>,
+                    //         Own<'next, FwdNode<'next, 'this>>,
                     //     >,
                     // >
                     let (ptr, next) = ptr.read_field(FNext);
                     // ptr: Ptr<Own<'this>, Node<PointsTo<'prev>, PointsTo<'next>>>
                     let Node { prev, val, .. } = ptr.into_inner();
                     let list = next.map(|next| {
-                        // next: Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>
-                        let next = NodeStateFwd::unpack(next);
+                        // next: Ptr<Own<'next, FwdNode<'next, 'this>>, Node>
+                        let next = FwdNode::unpack(next);
                         next.unpack_target_lt(|next| {
                             let (next, _) = next.write_field(FPrev, prev);
                             let next = pack_target_lt(next);
-                            let next = NodeStateFwd::pack(next);
-                            // next: Ptr<Own<'next, NodeStateFwd<'next, 'prev>>, Node>
+                            let next = FwdNode::pack(next);
+                            // next: Ptr<Own<'next, FwdNode<'next, 'prev>>, Node>
                             Self::from_ptr(next)
                         })
                     });
@@ -158,7 +152,7 @@ mod list_helpers {
     /// that proper `prev` discipline is preserved.
     fn prepend_inner<'this, 'prev>(
         next_or_prev: Result<
-            Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+            Ptr<Own<'this, FwdNode<'this, 'prev>>, Node>,
             Option<Ptr<PointsTo<'prev>, Node>>,
         >,
         val: usize,
@@ -166,18 +160,17 @@ mod list_helpers {
         // We need to allocate a new node at address `'new` that can have `'new` in
         // its type, hence the need for a closure like this. We must pack the `'new`
         // brand before returning.
-        type ToAlloc<'prev> =
-            PackLt!(<NodeStateFwd<'_, 'prev> as PackedPredicate<'_, Node>>::Unpacked);
+        type ToAlloc<'prev> = PackLt!(<FwdNode<'_, 'prev> as PackedPredicate<'_, Node>>::Unpacked);
         Ptr::new_uninit::<ToAlloc<'_>>().unpack_lt(|new| {
             // Create a new node.
             let node = match next_or_prev {
                 Ok(next) => {
-                    let next = NodeStateFwd::unpack(next);
+                    let next = FwdNode::unpack(next);
                     next.unpack_target_lt(|next| {
                         // Update `next.prev` to point to `new`.
                         let (next, prev) = next.write_field(FPrev, Some(new.weak_ref()));
                         let next = pack_target_lt(next);
-                        let next = NodeStateFwd::pack(next);
+                        let next = FwdNode::pack(next);
                         // `'next` only exists in the current scope so we must pack the existential
                         // here.
                         ExistsLt::pack_lt(Node {
@@ -195,7 +188,7 @@ mod list_helpers {
             };
             // Write the new node to the newly-allocated place.
             let new = new.write(node);
-            let new = NodeStateFwd::pack(new);
+            let new = FwdNode::pack(new);
             // Pack the `'new` lifetime
             NonEmptyList::from_ptr(new)
         })
@@ -211,13 +204,13 @@ mod list_helpers {
 // going through the list looking for a ptr equal to `last`), the `None` must be
 // proof-carrying.
 //   -> wait no, the wand carries the proof
-// impl<'this, 'prev, 'last> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev, 'last> {
-//     type Unpacked = Node<PointsTo<'prev>, (PackLt!(Own<'_, NodeStateFwd<'_, 'this, 'last>>, IfNull<Eq<'this, 'last>>))>;
+// impl<'this, 'prev, 'last> PackedPredicate<'this, Node> for FwdNode<'this, 'prev, 'last> {
+//     type Unpacked = Node<PointsTo<'prev>, (PackLt!(Own<'_, FwdNode<'_, 'this, 'last>>, IfNull<Eq<'this, 'last>>))>;
 // }
 // make `NullablePtr` and `IfNull` predicates?
 // this isn't enough, I need to know that from the current node I can deduce a `Own<'last, NodeStateBwd<'last, 'static>>`.
 // need a wand. good thing: wand can be on permissions directly, no need for ptrs.
-// Wand(Own<'this, NodeStateFwd<'this, 'static, 'last>) -> (Own<'last, NodeStateBwd<'last, 'static>>, same thing backwards)
+// Wand(Own<'this, FwdNode<'this, 'static, 'last>) -> (Own<'last, NodeStateBwd<'last, 'static>>, same thing backwards)
 // the `'static` is load-bearing: must be sure that we don't accidentally interpret a prev pointer
 // as owning if we shouldn't.
 // if the wand gave out a pointer, I would not need to track `'last` (maybe).
@@ -264,9 +257,9 @@ impl List {
     pub fn iter(&self) -> ListIter<'_> {
         ListIter(self.0.as_ref().map(|nelist| {
             nelist.as_ptr().unpack_lt_ref(|ptr| {
-                // ptr: &Ptr<Own<'_, NodeStateFwd<'_, '_>>, Node>
+                // ptr: &Ptr<Own<'_, FwdNode<'_, '_>>, Node>
                 let ptr = ptr.copy_read();
-                // ptr: Ptr<Read<'_, '_, NodeStateFwd<'_, '_>>, Node>
+                // ptr: Ptr<Read<'_, '_, FwdNode<'_, '_>>, Node>
                 ExistsLt::pack_lt(ExistsLt::pack_lt(ptr))
             })
         }))
@@ -274,9 +267,9 @@ impl List {
     pub fn iter_mut(&mut self) -> ListIterMut<'_> {
         ListIterMut(self.0.as_mut().map(|nelist| {
             nelist.as_ptr_mut().unpack_lt_mut(|ptr| {
-                // ptr: &mut Ptr<Own<'_, NodeStateFwd<'_, '_>>, Node>
+                // ptr: &mut Ptr<Own<'_, FwdNode<'_, '_>>, Node>
                 let ptr = ptr.copy_mut();
-                // ptr: Ptr<Mut<'_, '_, NodeStateFwd<'_, '_>>, Node>
+                // ptr: Ptr<Mut<'_, '_, FwdNode<'_, '_>>, Node>
                 ExistsLt::pack_lt(ExistsLt::pack_lt(ptr))
             })
         }))
@@ -291,26 +284,26 @@ impl Drop for List {
 
 // We existentially quantify two pointer tags: the current one and the previous one.
 pub struct ListIter<'a>(
-    Option<ExistsLt!(<'prev, 'this> = Ptr<Read<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>)>,
+    Option<ExistsLt!(<'prev, 'this> = Ptr<Read<'this, 'a, FwdNode<'this, 'prev>>, Node>)>,
 );
 
 impl<'a> Iterator for ListIter<'a> {
     type Item = &'a usize;
     fn next(&mut self) -> Option<Self::Item> {
         fn advance<'this, 'prev, 'a>(
-            ptr: Ptr<Read<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>,
-        ) -> Option<ExistsLt!(Ptr<Read<'_, 'a, NodeStateFwd<'_, 'this>>, Node>)> {
-            let ptr = NodeStateFwd::unpack(ptr);
+            ptr: Ptr<Read<'this, 'a, FwdNode<'this, 'prev>>, Node>,
+        ) -> Option<ExistsLt!(Ptr<Read<'_, 'a, FwdNode<'_, 'this>>, Node>)> {
+            let ptr = FwdNode::unpack(ptr);
             // ptr: Ptr<
             //    Read<'this, 'a>,
             //    ExistsLt!('next,
-            //        Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>
+            //        Node<PointsTo<'prev>, Own<'next, FwdNode<'next, 'this>>>
             //    )
             //  >
             ptr.unpack_target_lt(|ptr| {
-                // ptr: Ptr<Read<'this, 'a>, Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
+                // ptr: Ptr<Read<'this, 'a>, Node<PointsTo<'prev>, Own<'next, FwdNode<'next, 'this>>>>
                 let next = ptr.read_field(FNext).1?;
-                // next: Ptr<Read<'next, 'a, NodeStateFwd<'next, 'this>>, Node>
+                // next: Ptr<Read<'next, 'a, FwdNode<'next, 'this>>, Node>
                 Some(ExistsLt::pack_lt(next))
             })
         }
@@ -325,24 +318,24 @@ impl<'a> Iterator for ListIter<'a> {
 }
 
 pub struct ListIterMut<'a>(
-    Option<ExistsLt!(<'prev, 'this> = Ptr<Mut<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>)>,
+    Option<ExistsLt!(<'prev, 'this> = Ptr<Mut<'this, 'a, FwdNode<'this, 'prev>>, Node>)>,
 );
 
 impl<'a> Iterator for ListIterMut<'a> {
     type Item = &'a mut usize;
     fn next(&mut self) -> Option<Self::Item> {
         fn advance<'this, 'prev, 'a>(
-            ptr: Ptr<Mut<'this, 'a, NodeStateFwd<'this, 'prev>>, Node>,
+            ptr: Ptr<Mut<'this, 'a, FwdNode<'this, 'prev>>, Node>,
         ) -> (
             ExistsLt!(<'next> = Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PointsTo<'next>>>),
-            Option<ExistsLt!(Ptr<Mut<'_, 'a, NodeStateFwd<'_, 'this>>, Node>)>,
+            Option<ExistsLt!(Ptr<Mut<'_, 'a, FwdNode<'_, 'this>>, Node>)>,
         ) {
-            let ptr = NodeStateFwd::unpack(ptr);
+            let ptr = FwdNode::unpack(ptr);
             ptr.unpack_target_lt(|ptr| {
-                // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>>
+                // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, Own<'next, FwdNode<'next, 'this>>>>
                 let (ptr, next) = ptr.read_field(FNext);
                 // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PointsTo<'next>>>
-                // next: Option<Ptr<Mut<'next, 'a, NodeStateFwd<'next, 'this>>, Node>>
+                // next: Option<Ptr<Mut<'next, 'a, FwdNode<'next, 'this>>, Node>>
                 let ptr = ExistsLt::pack_lt(ptr);
                 (ptr, next.map(ExistsLt::pack_lt))
             })
@@ -520,20 +513,20 @@ mod cursor_via_wand {
     pub type ErasedListCursorInner = ExistsLt!(<'this, 'first> = ListCursorInner<'this, 'first>);
     pub struct ListCursorInner<'this, 'first> {
         /// Pointer to a node.
-        ptr: Ptr<Own<'this, NodeStateWandCursor<'this, 'first>>, Node>,
+        ptr: Ptr<Own<'this, CursorNode<'this, 'first>>, Node>,
         /// Pointer to the start of the list.
         first: Ptr<PointsTo<'first>, Node>,
     }
 
     impl<'this> ListCursorInner<'this, 'this> {
-        pub fn new(ptr: Ptr<Own<'this, NodeStateFwd<'this, 'static>>, Node>) -> Self {
-            let ptr = NodeStateFwd::unpack(ptr);
+        pub fn new(ptr: Ptr<Own<'this, FwdNode<'this, 'static>>, Node>) -> Self {
+            let ptr = FwdNode::unpack(ptr);
             ptr.unpack_target_lt(|ptr| {
                 let ptr = pack_target_lt(ptr);
                 let wand = Choice::merge(Wand::constant(VPtr::new_impossible()), Wand::id());
                 let ptr = ptr.tag_target(wand);
                 let ptr = pack_target_lt(ptr);
-                let ptr = NodeStateWandCursor::pack(ptr);
+                let ptr = CursorNode::pack(ptr);
                 let first = ptr.copy();
                 ListCursorInner { ptr, first }
             })
@@ -571,13 +564,13 @@ mod cursor_via_wand {
         }
 
         fn next_inner(
-            ptr: Ptr<Own<'this, NodeStateWandCursor<'this, 'first>>, Node>,
+            ptr: Ptr<Own<'this, CursorNode<'this, 'first>>, Node>,
         ) -> Result<
-            ExistsLt!(<'next> = Ptr<Own<'next, NodeStateWandCursor<'next, 'first>>, Node>),
-            Ptr<Own<'this, NodeStateWandCursor<'this, 'first>>, Node>,
+            ExistsLt!(<'next> = Ptr<Own<'next, CursorNode<'next, 'first>>, Node>),
+            Ptr<Own<'this, CursorNode<'this, 'first>>, Node>,
         > {
             let this = ptr.copy();
-            let ptr = NodeStateWandCursor::unpack(ptr);
+            let ptr = CursorNode::unpack(ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, old_wand) = ptr.untag_target();
                 ptr.unpack_target_lt(|ptr| {
@@ -585,16 +578,16 @@ mod cursor_via_wand {
                     //     Own<'this>,
                     //     Node<
                     //         PointsTo<'prev>,
-                    //         Own<'next, NodeStateFwd<'next, 'this>>,
+                    //         Own<'next, FwdNode<'next, 'this>>,
                     //     >,
                     // >
                     // Extract the ownership in `next` (and get a copy of that pointer).
                     ptr.get_field(FNext).unpack_lt(|(ptr_to_field, wand)| {
-                        // ptr_to_field: Ptr<Own<'sub>, Option<Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>>>,
+                        // ptr_to_field: Ptr<Own<'sub>, Option<Ptr<Own<'next, FwdNode<'next, 'this>>, Node>>>,
                         // wand takes ptr_to_field and returns full ownership of 'this
                         let (ptr_to_field, next) = ptr_to_field.read_opt_ptr();
                         // ptr_to_field: Ptr<Own<'sub>, Option<Ptr<PointsTo<'next>, Node>>>,
-                        // next: Option<Ptr<Own<'next, NodeStateFwd<'next, 'this>>, Node>>
+                        // next: Option<Ptr<Own<'next, FwdNode<'next, 'this>>, Node>>
                         match next {
                             Some(next) => {
                                 let wand = ptr_to_field
@@ -603,16 +596,16 @@ mod cursor_via_wand {
                                     .then(wand)
                                     .then(vpack_target_lt_wand());
                                 // old_wand takes 'this and returns Choice<'prev, 'first>
-                                // wand takes 'next and returns Own<'this, NodeStateFwd::Unpacked>
+                                // wand takes 'next and returns Own<'this, FwdNode::Unpacked>
                                 // from there we want to either apply old_wand or tag with old_wand
                                 let wand = wand.times_constant(old_wand).then(Choice::merge(
                                     // Tag the 'this with the old wand.
                                     VPtr::tag_target_wand()
                                         // Forget that wand_output.next = this
                                         .then(vpack_target_lt_wand())
-                                        .then(NodeStateWandCursor::pack_wand()),
+                                        .then(CursorNode::pack_wand()),
                                     // Pack the `'this` ptr.
-                                    NodeStateFwd::pack_wand()
+                                    FwdNode::pack_wand()
                                         .tensor_left()
                                         .then(Wand::swap_tuple())
                                         // Apply `old_wand` to get `Choice<'prev, 'first>`
@@ -620,10 +613,10 @@ mod cursor_via_wand {
                                         .then(Choice::choose_right()),
                                 ));
                                 // Now `wand` takes 'next and returns Choice<'this, 'first>
-                                let next = NodeStateFwd::unpack(next);
+                                let next = FwdNode::unpack(next);
                                 let next = next.tag_target(wand);
                                 let next = pack_target_lt(next);
-                                let next = NodeStateWandCursor::pack(next);
+                                let next = CursorNode::pack(next);
                                 Ok(ExistsLt::pack_lt(next))
                             }
                             None => {
@@ -633,7 +626,7 @@ mod cursor_via_wand {
                                 let ptr = pack_target_lt(ptr);
                                 let ptr = ptr.tag_target(old_wand);
                                 let ptr = pack_target_lt(ptr);
-                                let ptr = NodeStateWandCursor::pack(ptr);
+                                let ptr = CursorNode::pack(ptr);
                                 Err(ptr)
                             }
                         }
@@ -660,12 +653,12 @@ mod cursor_via_wand {
         }
 
         fn prev_inner(
-            ptr: Ptr<Own<'this, NodeStateWandCursor<'this, 'first>>, Node>,
+            ptr: Ptr<Own<'this, CursorNode<'this, 'first>>, Node>,
         ) -> Result<
-            ExistsLt!(<'prev> = Ptr<Own<'prev, NodeStateWandCursor<'prev, 'first>>, Node>),
-            Ptr<Own<'this, NodeStateWandCursor<'this, 'first>>, Node>,
+            ExistsLt!(<'prev> = Ptr<Own<'prev, CursorNode<'prev, 'first>>, Node>),
+            Ptr<Own<'this, CursorNode<'this, 'first>>, Node>,
         > {
-            let ptr = NodeStateWandCursor::unpack(ptr);
+            let ptr = CursorNode::unpack(ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, wand) = ptr.untag_target();
                 ptr.unpack_target_lt(|ptr| {
@@ -673,7 +666,7 @@ mod cursor_via_wand {
                     match prev {
                         Some(prev) => {
                             let ptr = pack_target_lt(ptr);
-                            let ptr = NodeStateFwd::pack(ptr);
+                            let ptr = FwdNode::pack(ptr);
                             let choice = wand.apply(ptr.into_virtual());
                             let vprev = Choice::choose_left().apply(choice);
                             let prev = prev.with_virtual(vprev);
@@ -683,7 +676,7 @@ mod cursor_via_wand {
                             let ptr = pack_target_lt(ptr);
                             let ptr = ptr.tag_target(wand);
                             let ptr = pack_target_lt(ptr);
-                            let ptr = NodeStateWandCursor::pack(ptr);
+                            let ptr = CursorNode::pack(ptr);
                             Err(ptr)
                         }
                     }
@@ -698,7 +691,7 @@ mod cursor_via_wand {
                 Ptr<PointsTo<'this>, Node>,
             ) -> Option<NonEmptyList<'this>>,
         ) -> Self {
-            let ptr = NodeStateWandCursor::unpack(self.ptr);
+            let ptr = CursorNode::unpack(self.ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, wand) = ptr.untag_target();
                 ptr.unpack_target_lt(|ptr| {
@@ -711,7 +704,7 @@ mod cursor_via_wand {
                         let ptr = pack_target_lt(ptr);
                         let ptr = ptr.tag_target(wand);
                         let ptr = pack_target_lt(ptr);
-                        let ptr = NodeStateWandCursor::pack(ptr);
+                        let ptr = CursorNode::pack(ptr);
                         ListCursorInner {
                             ptr,
                             first: self.first,
@@ -763,11 +756,11 @@ mod cursor_via_wand {
             (this, val)
         }
 
-        fn rewind(self) -> Ptr<Own<'first, NodeStateFwd<'first, 'static>>, Node> {
-            let ptr = NodeStateWandCursor::unpack(self.ptr);
+        fn rewind(self) -> Ptr<Own<'first, FwdNode<'first, 'static>>, Node> {
+            let ptr = CursorNode::unpack(self.ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, wand) = ptr.untag_target();
-                let ptr = NodeStateFwd::pack(ptr);
+                let ptr = FwdNode::pack(ptr);
                 let vfirst = wand.then(Choice::choose_right()).apply(ptr.into_virtual());
                 self.first.with_virtual(vfirst)
             })
