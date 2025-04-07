@@ -228,28 +228,6 @@ where
     }
     /// Like `write_field` but only moves permissions around. Does not write to memory.
     fn write_field_permission<'this, 'field, PtrPerm, NewPerm>(
-        self: Ptr<PtrPerm, Self>,
-        tok: FieldTok,
-        new: VPtr<NewPerm, Self::PointeeTy>,
-    ) -> Ptr<PtrPerm, Self::ChangePerm<NewPerm>>
-    where
-        PtrPerm: HasOwn<'this>,
-        FieldPerm: IsPointsTo<'field>,
-        NewPerm: IsPointsTo<'field>,
-        Self: HasGenericPermField<
-            FieldTok,
-            FieldPerm,
-            FieldTy<FieldPerm> = Option<Ptr<FieldPerm, Self::PointeeTy>>,
-        >,
-        Self: HasGenericPermField<
-            FieldTok,
-            FieldPerm,
-            FieldTy<NewPerm> = Option<Ptr<NewPerm, Self::PointeeTy>>,
-        >,
-    {
-        self.map_virtual(|v| v.write_field_permission_virt(tok, new))
-    }
-    fn write_field_permission_virt<'this, 'field, PtrPerm, NewPerm>(
         self: VPtr<PtrPerm, Self>,
         tok: FieldTok,
         new: VPtr<NewPerm, Self::PointeeTy>,
@@ -296,6 +274,6 @@ where
             FieldTy<PointsTo<'field>> = Option<Ptr<PointsTo<'field>, Self::PointeeTy>>,
         >,
     {
-        self.write_field_permission_virt(tok, VPtr::permissionless())
+        self.write_field_permission(tok, VPtr::permissionless())
     }
 }
