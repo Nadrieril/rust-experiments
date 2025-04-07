@@ -6,11 +6,11 @@
 //! - The use of GhostCell-like lifetime brands to indicate knowledge that two pointers are equal
 //! (including provenance).
 //!
-//! The pointer type is `Ptr<Perm, T>`, where `Perm` is almost always `PointsTo<'this, Access, Pred>`.
+//! The pointer type is `Ptr<Perm, T>`, where `Perm` is almost always `PointsTo<'this, Access, Ty>`.
 //! - `'this` is the brand that we use to track pointer equality at the type level;
 //! - `Access` specifies what access is allowed through this pointer. Typical values are `POwn`,
 //! `PMut<'a>`, `PRead<'a>` and `()` (no access);
-//! - `Pred` is an optional predicate on the pointed-to value.
+//! - `Ty` is an optional override of the pointed-to type.
 //!
 //! Because we track things at the type level, the API of this crate heavily features type-changing
 //! pointer manipulation. This may create situations were several pointers pointing to the same
@@ -25,9 +25,7 @@
 //! by following prev/next pointers. To represent this in types, we need type-changing operations:
 //! a same node in memory may have different types at different moments to reflect that changing
 //! ownership. We end up needing to change types between whole recursive datatypes; this is what
-//! pointee predicates are for. A typical predicate is a ZST implementing `PackedPredicate`. Such a
-//! predicate stands for knowledge about the pointers inside the pointee. See the doubly-linked
-//! list example for what this looks like.
+//! type overrides are for. See the doubly-linked list example for what this looks like.
 //!
 //! To manage ADTs that contain pointers see the `HasPermField` trait.
 //!

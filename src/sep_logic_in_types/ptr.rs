@@ -180,6 +180,25 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     }
 }
 
+impl<'this, A: PtrAccess, T: PointeePred> Ptr<PointsTo<'this, A, T>, T::Erased>
+where
+    T: ErasePerms,
+{
+    /// Move a type from the permission to the pointer target.
+    pub fn unpack_ty(self) -> Ptr<PointsTo<'this, A>, T> {
+        self.map_virtual(VPtr::unpack_ty)
+    }
+}
+impl<'this, A: PtrAccess, T: PointeePred> Ptr<PointsTo<'this, A>, T>
+where
+    T: ErasePerms,
+{
+    /// Reverse of `unpack_ty`.
+    pub fn pack_ty(self) -> Ptr<PointsTo<'this, A, T>, T::Erased> {
+        self.map_virtual(VPtr::pack_ty)
+    }
+}
+
 impl<OuterPerm, InnerPerm, T> Ptr<OuterPerm, Ptr<InnerPerm, T>> {
     /// Read a pointer behind a pointer. The permission that can be extracted that way is capped by
     /// the permission of the outer pointer; see the `AccessThrough` trait.

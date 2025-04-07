@@ -20,6 +20,7 @@ pub trait PtrAccess {}
 impl PtrAccess for () {}
 
 /// A predicate on a pointed-to value.
+/// TODO: remove this and redocument in terms of type overrides
 pub trait PointeePred {}
 impl PointeePred for () {}
 

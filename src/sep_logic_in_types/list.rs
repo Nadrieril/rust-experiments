@@ -70,9 +70,6 @@ unsafe impl<'this, 'first> TransparentWrapper for FwdNode<'this, 'first> {
     type Unwrapped = FwdNodeUnpacked<'this, 'first>;
 }
 impl PointeePred for FwdNode<'_, '_> {}
-impl<'this, 'prev> PackedPredicate<'this, Node> for FwdNode<'this, 'prev> {
-    type Unpacked = FwdNodeUnpacked<'this, 'prev>;
-}
 
 /// A cursor into a doubly-linked list. Owns the forward part of the list as normal, and uses
 /// wands to keep ownership of the previous nodes.
@@ -146,7 +143,8 @@ mod list_helpers {
                     let Node { prev, val, .. } = ptr.into_inner();
                     let list = next.map(|next| {
                         // next: Ptr<Own<'next, FwdNode<'next, 'this>>, Node>
-                        let next = FwdNode::unpack(next);
+                        let next = next.unpack_ty();
+                        let next = FwdNode::unwrap(next);
                         next.unpack_target_lt(|next| {
                             let (next, _) = next.write_field(FPrev, prev);
                             let next = pack_target_lt(next);
@@ -184,7 +182,8 @@ mod list_helpers {
                         // Update `next.prev` to point to `new`.
                         let (next, prev) = next.write_field(FPrev, Some(new.weak_ref()));
                         let next = pack_target_lt(next);
-                        let next = FwdNode::pack(next);
+                        let next = FwdNode::wrap(next);
+                        let next = next.pack_ty();
                         // `'next` only exists in the current scope so we must pack the existential
                         // here.
                         ExistsLt::pack_lt(Node {
@@ -318,8 +317,7 @@ impl<'a> Iterator for ListIter<'a> {
                 // ptr: Ptr<Read<'this, 'a>, Node<PointsTo<'prev>, Own<'next, FwdNode<'next, 'this>>>>
                 let next = ptr.read_field(FNext).1?;
                 // next: Ptr<Read<'next, 'a, FwdNode<'next, 'this>>, Node>
-                let next = FwdNode::unpack(next);
-                let next = FwdNode::wrap(next);
+                let next = next.unpack_ty();
                 Some(ExistsLt::pack_lt(next))
             })
         }
@@ -356,8 +354,7 @@ impl<'a> Iterator for ListIterMut<'a> {
                 // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PointsTo<'next>>>
                 // next: Option<Ptr<Mut<'next, 'a, FwdNode<'next, 'this>>, Node>>
                 let ptr = ExistsLt::pack_lt(ptr);
-                let next = next.map(FwdNode::unpack);
-                let next = next.map(FwdNode::wrap);
+                let next = next.map(Ptr::unpack_ty);
                 let next = next.map(ExistsLt::pack_lt);
                 (ptr, next)
             })
@@ -612,8 +609,7 @@ mod cursor_via_wand {
                         // next: Option<Ptr<Own<'next, FwdNode<'next, 'this>>, Node>>
                         match next {
                             Some(next) => {
-                                let wand = FwdNode::unwrap_wand()
-                                    .then(FwdNode::pack_wand())
+                                let wand = VPtr::pack_ty_wand()
                                     .then(ptr_to_field.into_virtual().write_opt_ptr_perm_wand())
                                     .then(wand)
                                     .then(vpack_target_lt_wand());
@@ -637,8 +633,7 @@ mod cursor_via_wand {
                                         .then(Choice::choose_right()),
                                 ));
                                 // Now `wand` takes 'next and returns Choice<'this, 'first>
-                                let next = FwdNode::unpack(next);
-                                let next = FwdNode::wrap(next);
+                                let next = next.unpack_ty();
                                 let next = next.tag_target(wand);
                                 let next = pack_target_lt(next);
                                 let next = CursorNode::wrap(next);
@@ -725,14 +720,12 @@ mod cursor_via_wand {
                 let ptr = FwdNode::unwrap(ptr);
                 ptr.unpack_target_lt(|ptr| {
                     let (ptr, next) = ptr.read_field(FNext);
-                    let next = next.map(FwdNode::unpack);
-                    let next = next.map(FwdNode::wrap);
+                    let next = next.map(Ptr::unpack_ty);
                     let next = next.map(|next| NonEmptyList::from_ptr(next));
                     let next = f(next, ptr.weak_ref());
                     let next = next.map(|next| next.into_ptr());
                     ExistsLt::unpack_opt_lt(next, |next| {
-                        let next = next.map(FwdNode::unwrap);
-                        let next = next.map(FwdNode::pack);
+                        let next = next.map(Ptr::pack_ty);
                         let (ptr, _) = ptr.write_field(FNext, next);
                         let ptr = pack_target_lt(ptr);
                         let ptr = FwdNode::wrap(ptr);

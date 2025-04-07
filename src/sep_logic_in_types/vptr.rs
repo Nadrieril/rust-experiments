@@ -98,6 +98,49 @@ impl<Perm: PtrPerm, T> VPtr<Perm, T> {
     }
 }
 
+impl<'this, A: PtrAccess, T: PointeePred> VPtr<PointsTo<'this, A, T>, T::Erased>
+where
+    T: ErasePerms,
+{
+    /// Move a type from the permission to the pointer target.
+    pub fn unpack_ty(self) -> VPtr<PointsTo<'this, A>, T> {
+        Self::unpack_ty_wand().apply(self)
+    }
+    /// Move a type from the permission to the pointer target.
+    pub fn unpack_ty_wand() -> Wand<Self, VPtr<PointsTo<'this, A>, T>> {
+        unsafe {
+            Wand::mimic_fn(|ptr| {
+                // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
+                // types) so the two types are layout-compatible. Since the definition of `Self` as a
+                // predicate is the effect of this function, this is definitionally a correct cast wrt
+                // permissions.
+                ptr.cast_pred().cast_ty()
+            })
+        }
+    }
+}
+impl<'this, A: PtrAccess, T: PointeePred> VPtr<PointsTo<'this, A>, T>
+where
+    T: ErasePerms,
+{
+    /// Reverse of `unpack_ty`.
+    pub fn pack_ty(self) -> VPtr<PointsTo<'this, A, T>, T::Erased> {
+        Self::pack_ty_wand().apply(self)
+    }
+    /// Reverse of `unpack_ty`.
+    pub fn pack_ty_wand() -> Wand<Self, VPtr<PointsTo<'this, A, T>, T::Erased>> {
+        unsafe {
+            Wand::mimic_fn(|ptr| {
+                // Safety: by the `EraseNestedPerms` precondition this only changes predicates (i.e. ghost
+                // types) so the two types are layout-compatible. Since the definition of `Self` as a
+                // predicate is the effect of this function, this is definitionally a correct cast wrt
+                // permissions.
+                ptr.cast_pred().cast_ty()
+            })
+        }
+    }
+}
+
 impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Option<Ptr<InnerPerm, T>>> {
     /// The opposite of `read_nested_ptr`: writes a permission to a pointer behind a (virtual)
     /// pointer. This does not write to memory, hence cannot be used to change the address of the
