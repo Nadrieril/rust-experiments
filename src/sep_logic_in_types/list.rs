@@ -56,52 +56,37 @@ unsafe impl<Prev: PtrPerm, Next: PtrPerm, UnusedPerm: PtrPerm> HasGenericPermFie
 }
 
 /// A linked list with backward pointers, with ownership that follows the forward pointers.
-struct NodeStateFwd<'this, 'prev>(InvariantLifetime<'this>, InvariantLifetime<'prev>);
+struct NodeStateFwd<'this, 'prev>(#[allow(unused)] NodeStateFwdUnpacked<'this, 'prev>);
+type NodeStateFwdUnpacked<'this, 'prev> = ExistsLt!(<'next> =
+    Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>
+);
+
 impl PointeePred for NodeStateFwd<'_, '_> {}
 impl<'this, 'prev> PackedPredicate<'this, Node> for NodeStateFwd<'this, 'prev> {
-    type Unpacked = ExistsLt!(<'next> =
-        Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>
-    );
+    type Unpacked = NodeStateFwdUnpacked<'this, 'prev>;
 }
 
-// struct FwdNode<'this, 'prev, 'last> {
-//     val: usize,
-//     prev: Option<Ptr<PointsTo<'prev>, Node>>,
-//     next: Result<
-//         ExistsLt!(<'next> = (
-//             Ptr<Own<'next>, FwdNode<'next, 'this, 'last>>,
-//             Wand<
-//                 VPtr<Own<'next>, FwdNode<'next, 'this, 'last>>,
-//                 VPtr<Own<'last>, Node>, // backward
-//             >
-//         )),
-//         EqPredicate<'this, 'last>,
-//     >,
-//     // actually, why not a `Wand<VPtr<Own<'this>, Self>, ...>`?
-// }
-#[expect(unused)]
-struct FwdNode<'this, 'prev, 'first, 'last>(
-    ExistsLt!(<'next> = Node<
-        PointsTo<'prev>,
-        PointsTo<'next, (
-            VPtr<Own<'next>, FwdNode<'next, 'this, 'first, 'last>>,
-            Wand<VPtr<Own<'this>, Self>, ExistsLt!(<'nextlast> = VPtr<Own<'last>, BwdNode<'last, 'nextlast, 'first, 'last>>)>,
-        )>,
-    >),
+/// A cursor into a doubly-linked list. Owns the forward part of the list as normal, and uses
+/// wands to keep ownership of the previous nodes.
+struct NodeStateWandCursor<'this, 'first>(
+    #[allow(unused)] NodeStateWandCursorUnpacked<'this, 'first>,
 );
-#[expect(unused)]
-// Maybe use a derive to prove `ErasePerms` of this into `Node`. Maybe `Node` is the "layout" that
-// everything must erase to. This can also derive pack/unpack to allow safe transmutability with
-// its contents.
-struct BwdNode<'this, 'next, 'first, 'last>(
-    ExistsLt!(<'prev> = Node<
-        PointsTo<'prev, (
-            VPtr<Own<'prev>, BwdNode<'prev, 'this, 'first, 'last>>,
-            Wand<VPtr<Own<'this>, Self>, ExistsLt!(<'firstprev> = VPtr<Own<'first>, FwdNode<'first, 'firstprev, 'first, 'last>>)>,
-        )>,
-        PointsTo<'next>,
-    >),
+type NodeStateWandCursorUnpacked<'this, 'first> = ExistsLt!(<'prev> =
+    Tagged<
+        NodeStateFwdUnpacked<'this, 'prev>,
+        Wand<
+            VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
+            Choice<
+                VPtr<Own<'prev, NodeStateWandCursor<'prev, 'first>>, Node>,
+                VPtr<Own<'first, NodeStateFwd<'first, 'static>>, Node>,
+            >,
+        >,
+    >
 );
+impl PointeePred for NodeStateWandCursor<'_, '_> {}
+impl<'this, 'first> PackedPredicate<'this, Node> for NodeStateWandCursor<'this, 'first> {
+    type Unpacked = NodeStateWandCursorUnpacked<'this, 'first>;
+}
 
 use list_helpers::NonEmptyList;
 mod list_helpers {
@@ -531,25 +516,6 @@ impl Drop for ListCursor<'_> {
 
 mod cursor_via_wand {
     use super::*;
-
-    /// A cursor into a doubly-linked list. Owns the forward part of the list as normal, and uses
-    /// wands to keep ownership of the previous nodes.
-    struct NodeStateWandCursor<'this, 'first>(InvariantLifetime<'this>, InvariantLifetime<'first>);
-    impl PointeePred for NodeStateWandCursor<'_, '_> {}
-    impl<'this, 'first> PackedPredicate<'this, Node> for NodeStateWandCursor<'this, 'first> {
-        type Unpacked = ExistsLt!(<'prev> =
-            Tagged<
-                <NodeStateFwd<'this, 'prev> as PackedPredicate<'this, Node>>::Unpacked,
-                Wand<
-                    VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-                    Choice<
-                        VPtr<Own<'prev, NodeStateWandCursor<'prev, 'first>>, Node>,
-                        VPtr<Own<'first, NodeStateFwd<'first, 'static>>, Node>,
-                    >,
-                >,
-            >
-        );
-    }
 
     pub type ErasedListCursorInner = ExistsLt!(<'this, 'first> = ListCursorInner<'this, 'first>);
     pub struct ListCursorInner<'this, 'first> {
