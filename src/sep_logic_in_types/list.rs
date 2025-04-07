@@ -778,9 +778,6 @@ impl ListCursor<'_> {
     }
 
     /// Restore the borrowed list after the cursor modifications.
-    // TODO: avoid the backward-retraversal of the list.
-    // I want to keep the first ptr around for when we're done with the cursor. Can only recover
-    // usage of the first pointer if the current state is compatible: need a magic wand.
     pub fn restore_list(mut self) {
         let mut first = loop {
             match self.prev() {
@@ -912,94 +909,50 @@ impl Drop for ListCursor<'_> {
 #[allow(unused)]
 mod cursor_via_wand {
     use super::*;
-    // -> may not need the nodestates!!!!
-    // -> paves the way to one-step rewinding???
-    // the lifetime erasure will be a mess
-    // -> hah, the output of the second wand must contain the first wand, because we need to
-    // existentially erase the lifetimes together. so still need the nodestates, but with
-    // side-wands instead now.
-    //
-    // With wands, can express cursor as:
-    // ExistsLt!(<'prev> = (
-    //     Ptr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-    //     Wand<
-    //         VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-    //         VPtr<Own<'prev, NodeStateCursor<'prev>>, Node>,
-    //     >
-    // ))
-    //
-    // Node<PointsTo<'prev>, Own<'next, NodeStateFwd<'next, 'this>>>
-    // + Wand<Own<'this>, Own<'prev, NodeStateCursor>>
-    // -> incorrect. if I modify this.prev and use the wand, the brands tell me
-    // that this.prev.next.prev = this.prev which is no longer true.
-    // hence the wand must enforce I don't change prev.
-    // I can never change self.prev. I might be able to change it through `next.prev` tho.
 
     /// A cursor into a doubly-linked list. Owns the forward part of the list as normal, and uses
     /// wands to keep ownership of the previous nodes.
-    // lmaooo this is an infinite backwards list x)))
-    struct NodeStateWandCursor<'this>(InvariantLifetime<'this>);
-    impl PointeePred for NodeStateWandCursor<'_> {}
-    impl<'this> PackedPredicate<'this, Node> for NodeStateWandCursor<'this> {
+    struct NodeStateWandCursor<'this, 'first>(InvariantLifetime<'this>, InvariantLifetime<'first>);
+    impl PointeePred for NodeStateWandCursor<'_, '_> {}
+    impl<'this, 'first> PackedPredicate<'this, Node> for NodeStateWandCursor<'this, 'first> {
         type Unpacked = ExistsLt!(<'prev> =
             Tagged<
                 <NodeStateFwd<'this, 'prev> as PackedPredicate<'this, Node>>::Unpacked,
                 Wand<
                     VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-                    VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
+                    Choice<
+                        VPtr<Own<'prev, NodeStateWandCursor<'prev, 'first>>, Node>,
+                        VPtr<Own<'first, NodeStateFwd<'first, 'static>>, Node>,
+                    >,
                 >,
             >
-            // TODO: add a wand to go back to the start.
-            //  Wand<
-            //      VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-            //      (
-            //          VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
-            //          Wand<
-            //              VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
-            //              VPtr<Own<'first, NodeStateFwd<'first, 'static>>, Node>,
-            //          >,
-            //      )
-            //  >,
-            //
-            //  Wand<
-            //      VPtr<Own<'this, NodeStateFwd<'this, 'prev>>, Node>,
-            //      Choice<
-            //          VPtr<Own<'prev, NodeStateWandCursor<'prev>>, Node>,
-            //          VPtr<Own<'first, NodeStateFwd<'first, 'static>>, Node>,
-            //      >
-            //  >,
-            // where Choice is additive conjunction
-            // Choice<A, B> -> A
-            // Choice<A, B> -> B
-            // (A, Wand<A, B>) -> Choice<A, B>
-            // Wand<A, B>.or_id() -> Wand<A, Choice<A, B>>
-            //
-            // To initialize: Wand::constant(VPtr::impossible()).or_id().swap()
-            // To next: compose this->prev with (prev->first).or_id()
         );
     }
 
-    pub type ErasedListCursorInner = ExistsLt!(<'this, 'first> = ListCursorInner<'this>);
-    pub struct ListCursorInner<'this> {
+    pub type ErasedListCursorInner = ExistsLt!(<'this, 'first> = ListCursorInner<'this, 'first>);
+    pub struct ListCursorInner<'this, 'first> {
         /// Pointer to a node.
-        ptr: Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
+        ptr: Ptr<Own<'this, NodeStateWandCursor<'this, 'first>>, Node>,
+        /// Pointer to the start of the list.
+        first: Ptr<PointsTo<'first>, Node>,
     }
 
-    impl<'this> ListCursorInner<'this> {
+    impl<'this> ListCursorInner<'this, 'this> {
         pub fn new(ptr: Ptr<Own<'this, NodeStateFwd<'this, 'static>>, Node>) -> Self {
             let ptr = NodeStateFwd::unpack(ptr);
             ptr.unpack_target_lt(|ptr| {
                 let ptr = pack_target_lt(ptr);
-                let wand = Wand::constant(VPtr::new_impossible());
+                let wand = Choice::merge(Wand::constant(VPtr::new_impossible()), Wand::id());
                 let ptr = ptr.tag_target(wand);
                 let ptr = pack_target_lt(ptr);
                 let ptr = NodeStateWandCursor::pack(ptr);
-                ListCursorInner { ptr }
+                let first = ptr.copy();
+                ListCursorInner { ptr, first }
             })
         }
     }
 
-    impl<'this> ListCursorInner<'this> {
+    impl<'this, 'first> ListCursorInner<'this, 'first> {
         pub fn val(&self) -> &usize {
             &self.ptr.deref().val
         }
@@ -1015,16 +968,25 @@ mod cursor_via_wand {
         /// Advance the cursor, keeping the previous ownership in a wand.
         pub fn next(self) -> Result<ErasedListCursorInner, Self> {
             match Self::next_inner(self.ptr) {
-                Ok(ptr) => Ok(ptr.unpack_lt(|ptr| ListCursorInner { ptr }.pack_lt())),
-                Err(ptr) => Err(Self { ptr }),
+                Ok(ptr) => Ok(ptr.unpack_lt(|ptr| {
+                    ListCursorInner {
+                        ptr,
+                        first: self.first,
+                    }
+                    .pack_lt()
+                })),
+                Err(ptr) => Err(Self {
+                    ptr,
+                    first: self.first,
+                }),
             }
         }
 
         fn next_inner(
-            ptr: Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
+            ptr: Ptr<Own<'this, NodeStateWandCursor<'this, 'first>>, Node>,
         ) -> Result<
-            ExistsLt!(<'next> = Ptr<Own<'next, NodeStateWandCursor<'next>>, Node>),
-            Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
+            ExistsLt!(<'next> = Ptr<Own<'next, NodeStateWandCursor<'next, 'first>>, Node>),
+            Ptr<Own<'this, NodeStateWandCursor<'this, 'first>>, Node>,
         > {
             let this = ptr.copy();
             let ptr = NodeStateWandCursor::unpack(ptr);
@@ -1051,11 +1013,25 @@ mod cursor_via_wand {
                                     .into_virtual()
                                     .write_opt_ptr_perm_wand()
                                     .then(wand)
-                                    .then(vpack_target_lt_wand())
-                                    .then(VPtr::tag_target_wand(old_wand))
-                                    // Forget that wand_output.next = this
-                                    .then(vpack_target_lt_wand())
-                                    .then(NodeStateWandCursor::pack_wand());
+                                    .then(vpack_target_lt_wand());
+                                // old_wand takes 'this and returns Choice<'prev, 'first>
+                                // wand takes 'next and returns Own<'this, NodeStateFwd::Unpacked>
+                                // from there we want to either apply old_wand or tag with old_wand
+                                let wand = wand.times_constant(old_wand).then(Choice::merge(
+                                    // Tag the 'this with the old wand.
+                                    VPtr::tag_target_wand()
+                                        // Forget that wand_output.next = this
+                                        .then(vpack_target_lt_wand())
+                                        .then(NodeStateWandCursor::pack_wand()),
+                                    // Pack the `'this` ptr.
+                                    NodeStateFwd::pack_wand()
+                                        .tensor_left()
+                                        .then(Wand::swap_tuple())
+                                        // Apply `old_wand` to get `Choice<'prev, 'first>`
+                                        .then(Wand::apply_wand())
+                                        .then(Choice::choose_right()),
+                                ));
+                                // Now `wand` takes 'next and returns Choice<'this, 'first>
                                 let next = NodeStateFwd::unpack(next);
                                 let next = next.tag_target(wand);
                                 let next = pack_target_lt(next);
@@ -1081,16 +1057,25 @@ mod cursor_via_wand {
         /// Move the cursor backwards.
         pub fn prev(self) -> Result<ErasedListCursorInner, Self> {
             match Self::prev_inner(self.ptr) {
-                Ok(ptr) => Ok(ptr.unpack_lt(|ptr| ListCursorInner { ptr }.pack_lt())),
-                Err(ptr) => Err(Self { ptr }),
+                Ok(ptr) => Ok(ptr.unpack_lt(|ptr| {
+                    ListCursorInner {
+                        ptr,
+                        first: self.first,
+                    }
+                    .pack_lt()
+                })),
+                Err(ptr) => Err(Self {
+                    ptr,
+                    first: self.first,
+                }),
             }
         }
 
         fn prev_inner(
-            ptr: Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
+            ptr: Ptr<Own<'this, NodeStateWandCursor<'this, 'first>>, Node>,
         ) -> Result<
-            ExistsLt!(<'prev> = Ptr<Own<'prev, NodeStateWandCursor<'prev>>, Node>),
-            Ptr<Own<'this, NodeStateWandCursor<'this>>, Node>,
+            ExistsLt!(<'prev> = Ptr<Own<'prev, NodeStateWandCursor<'prev, 'first>>, Node>),
+            Ptr<Own<'this, NodeStateWandCursor<'this, 'first>>, Node>,
         > {
             let ptr = NodeStateWandCursor::unpack(ptr);
             ptr.unpack_target_lt(|ptr| {
@@ -1101,7 +1086,8 @@ mod cursor_via_wand {
                         Some(prev) => {
                             let ptr = pack_target_lt(ptr);
                             let ptr = NodeStateFwd::pack(ptr);
-                            let vprev = wand.apply(ptr.into_virtual());
+                            let choice = wand.apply(ptr.into_virtual());
+                            let vprev = Choice::choose_left().apply(choice);
                             let prev = prev.with_virtual(vprev);
                             Ok(ExistsLt::pack_lt(prev))
                         }
@@ -1138,7 +1124,10 @@ mod cursor_via_wand {
                         let ptr = ptr.tag_target(wand);
                         let ptr = pack_target_lt(ptr);
                         let ptr = NodeStateWandCursor::pack(ptr);
-                        ListCursorInner { ptr }
+                        ListCursorInner {
+                            ptr,
+                            first: self.first,
+                        }
                     })
                 })
             })
@@ -1186,19 +1175,19 @@ mod cursor_via_wand {
             (this, val)
         }
 
-        /// Converts the current pointer into a list. Assumes that this is pointing to the first
-        /// element; any elements before will be lost.
-        pub fn into_list(self) -> List {
+        fn rewind(self) -> Ptr<Own<'first, NodeStateFwd<'first, 'static>>, Node> {
             let ptr = NodeStateWandCursor::unpack(self.ptr);
             ptr.unpack_target_lt(|ptr| {
-                let (ptr, _) = ptr.untag_target();
-                ptr.unpack_target_lt(|ptr| {
-                    let (ptr, _) = ptr.write_field(FPrev, None);
-                    let ptr = pack_target_lt(ptr);
-                    let ptr = NodeStateFwd::pack(ptr);
-                    List(Some(NonEmptyList::from_ptr(ptr)))
-                })
+                let (ptr, wand) = ptr.untag_target();
+                let ptr = NodeStateFwd::pack(ptr);
+                let vfirst = wand.then(Choice::choose_right()).apply(ptr.into_virtual());
+                self.first.with_virtual(vfirst)
             })
+        }
+        /// Recover the original list.
+        pub fn into_list(self) -> List {
+            let first = self.rewind();
+            List(Some(NonEmptyList::from_ptr(first)))
         }
     }
 }

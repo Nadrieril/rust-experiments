@@ -108,14 +108,14 @@ impl<Perm: PtrPerm, T> VPtr<Perm, T> {
     where
         Perm: HasOwn<'this>,
     {
-        Self::tag_target_wand(x).apply(self)
+        Self::tag_target_wand().apply((self, x))
     }
-    pub fn tag_target_wand<'this, X: Phantom>(_x: X) -> Wand<Self, VPtr<Perm, Tagged<T, X>>>
+    pub fn tag_target_wand<'this, X: Phantom>() -> Wand<(Self, X), VPtr<Perm, Tagged<T, X>>>
     where
         Perm: HasOwn<'this>,
     {
         unsafe {
-            Wand::mimic_fn(|ptr| {
+            Wand::mimic_fn(|(ptr, _x)| {
                 // Safety: `repr(transparent)` allows the cast. We respect linearity.
                 ptr.cast_ty()
             })

@@ -36,6 +36,18 @@ impl<I, O> Wand<I, O> {
     {
         unsafe { Wand::mimic_closure(|_| x) }
     }
+    pub fn times_constant<U>(self, x: U) -> Wand<I, (O, U)>
+    where
+        U: Phantom,
+    {
+        self.then(unsafe { Wand::mimic_closure(|o| (o, x)) })
+    }
+    pub fn swap_tuple() -> Wand<(I, O), (O, I)> {
+        unsafe { Wand::from_thin_air() }
+    }
+    pub fn tensor_left<X>(self) -> Wand<(I, X), (O, X)> {
+        unsafe { Wand::from_thin_air() }
+    }
 
     /// Compose two wands.
     pub fn then<U>(self, _other: Wand<O, U>) -> Wand<I, U> {
@@ -48,5 +60,47 @@ impl<I, O> Wand<I, O> {
         O: Phantom,
     {
         unsafe { O::new() }
+    }
+    pub fn apply_wand() -> Wand<(Self, I), O> {
+        Wand::id().uncurry()
+    }
+}
+
+impl<I> Wand<I, I> {
+    pub fn id() -> Self {
+        unsafe { Wand::mimic_fn(|x| x) }
+    }
+}
+
+impl<I, J, O> Wand<I, Wand<J, O>> {
+    pub fn uncurry(self) -> Wand<(I, J), O> {
+        unsafe { Wand::from_thin_air() }
+    }
+}
+impl<I, J, O> Wand<(I, J), O> {
+    #[expect(unused)]
+    pub fn curry(self) -> Wand<I, Wand<J, O>> {
+        unsafe { Wand::from_thin_air() }
+    }
+}
+
+/// Additive disjunction: a special pair from which you can choose to extract an `A` or a `B`, but
+/// not both. This is an idea from linear logic.
+pub struct Choice<A, B>(PhantomData<(A, B)>);
+unsafe impl<A: Phantom, B: Phantom> Phantom for Choice<A, B> {}
+
+impl<A: Phantom, B: Phantom> Choice<A, B> {
+    pub fn choose_left() -> Wand<Self, A> {
+        unsafe { Wand::from_thin_air() }
+    }
+    pub fn choose_right() -> Wand<Self, B> {
+        unsafe { Wand::from_thin_air() }
+    }
+    pub fn merge<X>(_left: Wand<X, A>, _right: Wand<X, B>) -> Wand<X, Self> {
+        unsafe { Wand::from_thin_air() }
+    }
+    #[expect(unused)]
+    pub fn swap() -> Wand<Self, Choice<B, A>> {
+        Choice::merge(Self::choose_right(), Self::choose_left())
     }
 }
