@@ -56,6 +56,7 @@ pub mod list;
 mod permissions;
 mod predicates;
 mod ptr;
+pub mod tree;
 mod vptr;
 mod wand;
 

@@ -59,17 +59,25 @@ unsafe impl<Prev: PtrPerm, Next: PtrPerm, UnusedPerm: PtrPerm> HasGenericPermFie
 #[repr(transparent)]
 struct FwdNode<'this, 'prev>(#[allow(unused)] FwdNodeUnpacked<'this, 'prev>);
 type FwdNodeUnpacked<'this, 'prev> = ExistsLt!(<'next> =
-    Node<PointsTo<'prev>, Own<'next, FwdNode<'next, 'this>>>
+    Node<PointsTo<'prev>, Own<'next, FwdNode<'next, 'this>>>,
+    // TODO:
+    //  VPtr<Own<'next>, FwdNode<'next, 'this>>,
+    //  Wand<
+    //      VPtr<Own<'first>, FwdNode<'first, 'static>>,
+    //      VPtr<Own<'last>, CursorNode<'last, 'first>>,
+    //  >,
+    // how to maintain this when adding/removing nodes?
+    // since FwdNode is only about the list slice going forward, maybe it should express the
+    // ability to move forward n times:
+    //  Wand<
+    //      (
+    //          VPtr<Own<'next>, FwdNode<'next, 'this>>,
+    //          // somehow represent backwards ownership from this to first?
+    //      )
+    //      VPtr<Own<'last>, CursorNode<'last, 'next>>, // should record 'first_prev to be good
+    //  >,
+    // false: `CursorNode` implies that we can `prev()` as long as the pointers are non-None.
 );
-
-// This could be derived.
-unsafe impl<'this, 'prev> ErasePerms for FwdNode<'this, 'prev> {
-    type Erased = <FwdNodeUnpacked<'this, 'prev> as ErasePerms>::Erased;
-}
-unsafe impl<'this, 'first> TransparentWrapper for FwdNode<'this, 'first> {
-    type Unwrapped = FwdNodeUnpacked<'this, 'first>;
-}
-impl PointeePred for FwdNode<'_, '_> {}
 
 /// A cursor into a doubly-linked list. Owns the forward part of the list as normal, and uses
 /// wands to keep ownership of the previous nodes.
@@ -90,6 +98,15 @@ type CursorNodeUnpacked<'this, 'first> = ExistsLt!(<'prev> =
         >,
     >
 );
+
+// This could be derived.
+unsafe impl<'this, 'prev> ErasePerms for FwdNode<'this, 'prev> {
+    type Erased = <FwdNodeUnpacked<'this, 'prev> as ErasePerms>::Erased;
+}
+unsafe impl<'this, 'first> TransparentWrapper for FwdNode<'this, 'first> {
+    type Unwrapped = FwdNodeUnpacked<'this, 'first>;
+}
+impl PointeePred for FwdNode<'_, '_> {}
 
 // This could be derived.
 unsafe impl<'this, 'first> ErasePerms for CursorNode<'this, 'first> {
