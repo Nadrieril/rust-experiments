@@ -229,9 +229,9 @@ mod mutate {
         }
     }
     impl<'this, Perm: HasMut<'this>, T> Ptr<Perm, T> {
+        #[expect(unused)]
         pub fn deref_mut(&mut self) -> &mut T {
-            // Safety: we have at least `Mut` permission.
-            unsafe { self.as_non_null().as_mut() }
+            self.copy_mut().into_deref_mut()
         }
     }
 }
@@ -276,6 +276,14 @@ mod read {
         pub fn from_ref(r: &'a T) -> Self {
             unsafe { Ptr::new_with_perm(r.into(), Read::new()) }
         }
+        pub fn copy_read_same_lifetime(&self) -> Self {
+            self.map_virtual_ref(|v| v.copy_read_same_lifetime())
+        }
+    }
+    impl<'this, 'a, T> VPtr<Read<'this, 'a>, T> {
+        pub fn copy_read_same_lifetime(&self) -> Self {
+            unsafe { self.copy_read().cast_perm() }
+        }
     }
     impl<'this, 'a, Perm: PointeePred, T> Ptr<Read<'this, 'a, Perm>, T> {
         /// Like `deref` but get a more precise lifetime.
@@ -286,8 +294,7 @@ mod read {
     }
     impl<'this, Perm: HasRead<'this>, T> Ptr<Perm, T> {
         pub fn deref(&self) -> &T {
-            // Safety: we have `Read` permission.
-            unsafe { self.as_non_null().as_ref() }
+            self.copy_read().deref_exact()
         }
     }
 }

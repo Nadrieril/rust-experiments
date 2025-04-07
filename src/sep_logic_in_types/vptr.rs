@@ -90,9 +90,8 @@ impl<Perm: PtrPerm, T> VPtr<Perm, T> {
         unsafe { VPtr::new(Perm::from_points_to(ptr.perm)) }
     }
 
-    pub fn erase_target_perms<'this>(self) -> VPtr<Perm, T::Erased>
+    pub fn erase_target_perms(self) -> VPtr<Perm, T::Erased>
     where
-        Perm: HasOwn<'this>,
         T: ErasePerms,
     {
         unsafe { self.cast_ty() }

@@ -105,10 +105,9 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         self.map_virtual_mut(|v| v.copy_mut())
     }
 
-    #[expect(unused)]
     pub fn erase_target_perms<'this>(self) -> Ptr<Perm, T::Erased>
     where
-        Perm: HasOwn<'this>,
+        Perm: IsPointsTo<'this>,
         T: ErasePerms,
     {
         self.map_virtual(|v| v.erase_target_perms())
