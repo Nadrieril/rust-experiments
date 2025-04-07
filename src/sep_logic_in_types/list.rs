@@ -25,32 +25,35 @@ unsafe impl<Prev, Next> ErasePerms for Node<Prev, Next> {
     type Erased = Node;
 }
 
-unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasGenericPermField<FPrev, Prev> for Node<Prev, Next> {
-    type FieldTy<FieldPerm: PtrPerm> = Option<Ptr<FieldPerm, Node>>;
-    type ChangePerm<NewPrev: PtrPerm> = Node<NewPrev, Next>;
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasField<FPrev> for Node<Prev, Next> {
+    type FieldTy = Option<Ptr<Prev, Node>>;
     unsafe fn field_raw(ptr: NonNull<Self>, _tok: FPrev) -> NonNull<Option<Ptr<Prev, Node>>> {
         unsafe { NonNull::new_unchecked(&raw mut (*ptr.as_ptr()).prev) }
     }
 }
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasGenericPermField<FPrev, Prev> for Node<Prev, Next> {
+    type GenericFieldTy<FieldPerm: PtrPerm> = Option<Ptr<FieldPerm, Node>>;
+    type ChangePerm<NewPrev: PtrPerm> = Node<NewPrev, Next>;
+}
 unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasOptPtrField<FPrev, Prev> for Node<Prev, Next> {
     type PointeeTy = Node;
 }
-unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasGenericPermField<FNext, Next> for Node<Prev, Next> {
-    type FieldTy<FieldPerm: PtrPerm> = Option<Ptr<FieldPerm, Node>>;
-    type ChangePerm<NewNext: PtrPerm> = Node<Prev, NewNext>;
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasField<FNext> for Node<Prev, Next> {
+    type FieldTy = Option<Ptr<Next, Node>>;
     unsafe fn field_raw(ptr: NonNull<Self>, _tok: FNext) -> NonNull<Option<Ptr<Next, Node>>> {
         unsafe { NonNull::new_unchecked(&raw mut (*ptr.as_ptr()).next) }
     }
 }
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasGenericPermField<FNext, Next> for Node<Prev, Next> {
+    type GenericFieldTy<FieldPerm: PtrPerm> = Option<Ptr<FieldPerm, Node>>;
+    type ChangePerm<NewNext: PtrPerm> = Node<Prev, NewNext>;
+}
 unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasOptPtrField<FNext, Next> for Node<Prev, Next> {
     type PointeeTy = Node;
 }
-unsafe impl<Prev: PtrPerm, Next: PtrPerm, UnusedPerm: PtrPerm> HasGenericPermField<FVal, UnusedPerm>
-    for Node<Prev, Next>
-{
-    type FieldTy<Perm: PtrPerm> = usize;
-    type ChangePerm<NewPerm: PtrPerm> = Self;
-    unsafe fn field_raw(ptr: NonNull<Self>, _tok: FVal) -> NonNull<Self::FieldTy<UnusedPerm>> {
+unsafe impl<Prev: PtrPerm, Next: PtrPerm> HasField<FVal> for Node<Prev, Next> {
+    type FieldTy = usize;
+    unsafe fn field_raw(ptr: NonNull<Self>, _tok: FVal) -> NonNull<Self::FieldTy> {
         unsafe { NonNull::new_unchecked(&raw mut (*ptr.as_ptr()).val) }
     }
 }
@@ -618,57 +621,58 @@ mod cursor_via_wand {
                     //     >,
                     // >
                     // Extract the ownership in `next` (and get a copy of that pointer).
-                    ptr.get_field(FNext).unpack_lt(|(ptr_to_field, wand)| {
-                        // ptr_to_field: Ptr<Own<'sub>, Option<Ptr<Own<'next, FwdNode<'next, 'this>>, Node>>>,
-                        // wand takes ptr_to_field and returns full ownership of 'this
-                        let (ptr_to_field, next) = ptr_to_field.read_opt_ptr();
-                        // ptr_to_field: Ptr<Own<'sub>, Option<Ptr<PointsTo<'next>, Node>>>,
-                        // next: Option<Ptr<Own<'next, FwdNode<'next, 'this>>, Node>>
-                        match next {
-                            Some(next) => {
-                                let wand = VPtr::pack_ty_wand()
-                                    .then(ptr_to_field.into_virtual().write_opt_ptr_perm_wand())
-                                    .then(wand)
-                                    .then(vpack_target_lt_wand());
-                                // old_wand takes 'this and returns Choice<'prev, 'first>
-                                // wand takes 'next and returns Own<'this, FwdNode::Unpacked>
-                                // from there we want to either apply old_wand or tag with old_wand
-                                let wand = wand.times_constant(old_wand).then(Choice::merge(
-                                    FwdNode::wrap_wand()
-                                        .tensor_left()
-                                        // Tag the 'this with the old wand.
-                                        .then(VPtr::tag_target_wand())
-                                        // Forget that wand_output.next = this
-                                        .then(vpack_target_lt_wand())
-                                        .then(CursorNode::wrap_wand()),
-                                    // Pack the `'this` ptr.
-                                    FwdNode::wrap_wand()
-                                        .tensor_left()
-                                        .then(Wand::swap_tuple())
-                                        // Apply `old_wand` to get `Choice<'prev, 'first>`
-                                        .then(Wand::apply_wand())
-                                        .then(Choice::choose_right()),
-                                ));
-                                // Now `wand` takes 'next and returns Choice<'this, 'first>
-                                let next = next.unpack_ty();
-                                let next = next.tag_target(wand);
-                                let next = pack_target_lt(next);
-                                let next = CursorNode::wrap(next);
-                                Ok(ExistsLt::pack_lt(next))
+                    ptr.get_generic_field(FNext)
+                        .unpack_lt(|(ptr_to_field, wand)| {
+                            // ptr_to_field: Ptr<Own<'sub>, Option<Ptr<Own<'next, FwdNode<'next, 'this>>, Node>>>,
+                            // wand takes ptr_to_field and returns full ownership of 'this
+                            let (ptr_to_field, next) = ptr_to_field.read_opt_ptr();
+                            // ptr_to_field: Ptr<Own<'sub>, Option<Ptr<PointsTo<'next>, Node>>>,
+                            // next: Option<Ptr<Own<'next, FwdNode<'next, 'this>>, Node>>
+                            match next {
+                                Some(next) => {
+                                    let wand = VPtr::pack_ty_wand()
+                                        .then(ptr_to_field.into_virtual().write_opt_ptr_perm_wand())
+                                        .then(wand)
+                                        .then(vpack_target_lt_wand());
+                                    // old_wand takes 'this and returns Choice<'prev, 'first>
+                                    // wand takes 'next and returns Own<'this, FwdNode::Unpacked>
+                                    // from there we want to either apply old_wand or tag with old_wand
+                                    let wand = wand.times_constant(old_wand).then(Choice::merge(
+                                        FwdNode::wrap_wand()
+                                            .tensor_left()
+                                            // Tag the 'this with the old wand.
+                                            .then(VPtr::tag_target_wand())
+                                            // Forget that wand_output.next = this
+                                            .then(vpack_target_lt_wand())
+                                            .then(CursorNode::wrap_wand()),
+                                        // Pack the `'this` ptr.
+                                        FwdNode::wrap_wand()
+                                            .tensor_left()
+                                            .then(Wand::swap_tuple())
+                                            // Apply `old_wand` to get `Choice<'prev, 'first>`
+                                            .then(Wand::apply_wand())
+                                            .then(Choice::choose_right()),
+                                    ));
+                                    // Now `wand` takes 'next and returns Choice<'this, 'first>
+                                    let next = next.unpack_ty();
+                                    let next = next.tag_target(wand);
+                                    let next = pack_target_lt(next);
+                                    let next = CursorNode::wrap(next);
+                                    Ok(ExistsLt::pack_lt(next))
+                                }
+                                None => {
+                                    let ptr_to_field = ptr_to_field.write(None);
+                                    let ptr = wand.apply(ptr_to_field.into_virtual());
+                                    let ptr = this.with_virtual(ptr);
+                                    let ptr = pack_target_lt(ptr);
+                                    let ptr = FwdNode::wrap(ptr);
+                                    let ptr = ptr.tag_target(old_wand);
+                                    let ptr = pack_target_lt(ptr);
+                                    let ptr = CursorNode::wrap(ptr);
+                                    Err(ptr)
+                                }
                             }
-                            None => {
-                                let ptr_to_field = ptr_to_field.write(None);
-                                let ptr = wand.apply(ptr_to_field.into_virtual());
-                                let ptr = this.with_virtual(ptr);
-                                let ptr = pack_target_lt(ptr);
-                                let ptr = FwdNode::wrap(ptr);
-                                let ptr = ptr.tag_target(old_wand);
-                                let ptr = pack_target_lt(ptr);
-                                let ptr = CursorNode::wrap(ptr);
-                                Err(ptr)
-                            }
-                        }
-                    })
+                        })
                 })
             })
         }
