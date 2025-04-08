@@ -344,7 +344,6 @@ impl<'a> Iterator for ListIter<'a> {
         self.0.take()?.unpack_lt(|ptr| {
             ptr.unpack_lt(|ptr| {
                 let val = ptr
-                    .copy_read_same_lifetime()
                     .unwrap()
                     .unpack_target_lt(|ptr| &ptr.erase_target_perms().deref_exact().val);
                 self.0 = advance(ptr).map(ExistsLt::pack_lt);

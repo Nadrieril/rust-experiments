@@ -466,19 +466,17 @@ mod iter {
         fn traverse_inner(self, f: &mut impl FnMut(&'a usize, usize), depth: usize) {
             self.0.unpack_lt(|ptr| {
                 ptr.unpack_lt(|ptr| {
-                    if let Ok(x) = ptr.copy_read_same_lifetime().read_child(FLeft) {
+                    if let Ok(x) = ptr.read_child(FLeft) {
                         x.unpack_lt(|(child, _)| {
                             // child: Ptr<Read<'child, 'a>, NormalNode<'child, 'this>>,
                             TreeRef::from_ptr(child).traverse_inner(f, depth + 1);
                         })
                     }
-                    ptr.copy_read_same_lifetime()
-                        .get_field(FVal)
-                        .unpack_lt(|(val_ptr, _)| {
-                            let val = val_ptr.deref_exact();
-                            f(val, depth);
-                        });
-                    if let Ok(x) = ptr.copy_read_same_lifetime().read_child(FRight) {
+                    ptr.get_field(FVal).unpack_lt(|(val_ptr, _)| {
+                        let val = val_ptr.deref_exact();
+                        f(val, depth);
+                    });
+                    if let Ok(x) = ptr.read_child(FRight) {
                         x.unpack_lt(|(child, _)| {
                             // child: Ptr<Read<'child, 'a>, NormalNode<'child, 'this>>,
                             TreeRef::from_ptr(child).traverse_inner(f, depth + 1);

@@ -215,3 +215,14 @@ pub fn vpack_target_lt_wand<'this, Perm: PtrPerm, T: PackLt>(
 impl<Perm, T> Receiver for VPtr<Perm, T> {
     type Target = T;
 }
+
+/// The copyability of a pointer is constrained by the permission.
+impl<Perm: Clone, T> Clone for VPtr<Perm, T> {
+    fn clone(&self) -> Self {
+        Self {
+            perm: self.perm.clone(),
+            phantom: self.phantom.clone(),
+        }
+    }
+}
+impl<Perm: Copy, T> Copy for VPtr<Perm, T> {}

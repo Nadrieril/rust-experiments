@@ -282,3 +282,14 @@ impl<Perm, T> Debug for Ptr<Perm, T> {
         write!(f, "{}", std::any::type_name::<Self>())
     }
 }
+
+/// The copyability of a pointer is constrained by the permission.
+impl<Perm: Clone, T> Clone for Ptr<Perm, T> {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr,
+            vptr: self.vptr.clone(),
+        }
+    }
+}
+impl<Perm: Copy, T> Copy for Ptr<Perm, T> {}

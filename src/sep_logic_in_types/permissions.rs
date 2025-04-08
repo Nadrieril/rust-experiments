@@ -145,6 +145,7 @@ mod noperm {
     use std::marker::PhantomData;
 
     /// Token that grants no permissions to a pointer.
+    #[derive(Clone, Copy)]
     pub struct NoPerm(PhantomData<()>);
     unsafe impl Phantom for NoPerm {}
     unsafe impl PtrPerm for NoPerm {}
@@ -274,6 +275,7 @@ mod read {
     use std::marker::PhantomData;
 
     /// Read access
+    #[derive(Clone, Copy)]
     pub struct PRead<'a>(PhantomData<&'a ()>);
     impl PtrAccess for PRead<'_> {}
     pub type Read<'this, 'a, Pred = ()> = PointsTo<'this, PRead<'a>, Pred>;
@@ -306,14 +308,6 @@ mod read {
     impl<'this, 'a, T> Ptr<Read<'this, 'a>, T> {
         pub fn from_ref(r: &'a T) -> Self {
             unsafe { Ptr::new_with_perm(r.into(), Read::new()) }
-        }
-        pub fn copy_read_same_lifetime(&self) -> Self {
-            self.map_virtual_ref(|v| v.copy_read_same_lifetime())
-        }
-    }
-    impl<'this, 'a, T> VPtr<Read<'this, 'a>, T> {
-        pub fn copy_read_same_lifetime(&self) -> Self {
-            unsafe { self.copy_read().cast_perm() }
         }
     }
     impl<'this, 'a, Perm: PointeePred, T> Ptr<Read<'this, 'a, Perm>, T> {
@@ -377,3 +371,11 @@ mod allocated {
     /// The target is guaranteed to stay allocated as long as the permission exists.
     pub trait HasAllocated<'this> = IsPointsTo<'this, Access: AtLeastAllocated>;
 }
+
+/// The copyability of a pointer is constrained by the access granted by this pointer.
+impl<'this, Access: PtrAccess + Clone, Pred: PointeePred> Clone for PointsTo<'this, Access, Pred> {
+    fn clone(&self) -> Self {
+        Self(self.0, self.1, self.2)
+    }
+}
+impl<'this, Access: PtrAccess + Copy, Pred: PointeePred> Copy for PointsTo<'this, Access, Pred> {}
