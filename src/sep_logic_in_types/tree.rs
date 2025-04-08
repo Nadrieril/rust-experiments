@@ -128,9 +128,9 @@ impl<'this, Parent: PtrPerm> Node<'this, Parent> {
 
 pub use tree::Tree;
 mod tree {
-    use crate::sep_logic_in_types::tree::cursor_via_wand::CursorInner;
+    use crate::sep_logic_in_types::tree::cursor_via_wand::Cursor;
 
-    use super::{cursor_via_wand::ErasedCursorInner, *};
+    use super::{cursor_via_wand::ErasedCursor, *};
 
     struct NonEmptyTree<'parent>(pub Child<'parent>);
 
@@ -152,8 +152,8 @@ mod tree {
         fn new(val: usize) -> Self {
             Self(alloc_node(None, val))
         }
-        fn cursor(self) -> ErasedCursorInner {
-            self.0.unpack_lt(|ptr| CursorInner::new(ptr).pack_lt())
+        fn cursor(self) -> ErasedCursor {
+            self.0.unpack_lt(|ptr| Cursor::new(ptr).pack_lt())
         }
         fn insert(self, val: usize) -> Self {
             self.cursor().unpack_lt(|cursor| {
@@ -228,15 +228,15 @@ mod cursor_via_wand {
         type Erased = <CursorNodeUnpacked<'this, 'root> as ErasePerms>::Erased;
     }
 
-    pub type ErasedCursorInner = ExistsLt!(<'this, 'root> = CursorInner<'this, 'root>);
-    pub struct CursorInner<'this, 'root> {
+    pub type ErasedCursor = ExistsLt!(<'this, 'root> = Cursor<'this, 'root>);
+    pub struct Cursor<'this, 'root> {
         /// Pointer to a subtree.
         ptr: Ptr<Own<'this>, CursorNode<'this, 'root>>,
         /// Pointer to the root of the tree.
         root: Ptr<PointsTo<'root>, ErasedNode>,
     }
 
-    impl<'this, 'root> CursorInner<'this, 'root> {
+    impl<'this, 'root> Cursor<'this, 'root> {
         pub fn val(&self) -> &usize {
             let ptr = self.ptr.copy_read();
             let ptr = CursorNode::unwrap(ptr);
@@ -259,7 +259,7 @@ mod cursor_via_wand {
 
         /// Insert this value into the current (sorted) subtree. The returned cursor points to the
         /// parent of the newly-added node.
-        pub fn insert(self, val: usize) -> ErasedCursorInner {
+        pub fn insert(self, val: usize) -> ErasedCursor {
             let go_right = val >= *self.val();
             let moved = if go_right {
                 self.go_right()
@@ -297,7 +297,7 @@ mod cursor_via_wand {
                 let ptr = ptr.tag_target(wand);
                 let ptr = pack_target_lt(ptr);
                 let ptr = CursorNode::wrap(ptr);
-                CursorInner {
+                Cursor {
                     ptr,
                     root: self.root,
                 }
@@ -305,31 +305,31 @@ mod cursor_via_wand {
         }
     }
 
-    impl<'this> CursorInner<'this, 'this> {
+    impl<'this> Cursor<'this, 'this> {
         pub fn new(ptr: Ptr<Own<'this>, NormalNode<'this, 'static>>) -> Self {
             let root = ptr.weak_ref();
             let wand = Choice::merge(Wand::constant(VPtr::new_impossible()), Wand::id());
             let ptr = ptr.tag_target(wand);
             let ptr = pack_target_lt(ptr);
             let ptr = CursorNode::wrap(ptr);
-            CursorInner { ptr, root }
+            Cursor { ptr, root }
         }
     }
 
-    impl<'this, 'root> CursorInner<'this, 'root> {
+    impl<'this, 'root> Cursor<'this, 'root> {
         /// Helper.
-        pub fn pack_lt(self) -> ErasedCursorInner {
+        pub fn pack_lt(self) -> ErasedCursor {
             ExistsLt::pack_lt(ExistsLt::pack_lt(self))
         }
 
-        pub fn go_left(self) -> Result<ErasedCursorInner, Self> {
+        pub fn go_left(self) -> Result<ErasedCursor, Self> {
             self.go_child(FLeft)
         }
-        pub fn go_right(self) -> Result<ErasedCursorInner, Self> {
+        pub fn go_right(self) -> Result<ErasedCursor, Self> {
             self.go_child(FRight)
         }
         /// Move the cursor to the given child.
-        fn go_child<FieldTok>(self, tok: FieldTok) -> Result<ErasedCursorInner, Self>
+        fn go_child<FieldTok>(self, tok: FieldTok) -> Result<ErasedCursor, Self>
         where
             FieldTok: Copy,
             for<'parent> NormalNode<'this, 'parent>:
@@ -379,7 +379,7 @@ mod cursor_via_wand {
                             let child = child.tag_target(wand);
                             let child = pack_target_lt(child);
                             let child = CursorNode::wrap(child);
-                            Ok(CursorInner {
+                            Ok(Cursor {
                                 ptr: child,
                                 root: self.root,
                             }
@@ -391,7 +391,7 @@ mod cursor_via_wand {
                         let ptr = ptr.tag_target(rewind_wand);
                         let ptr = pack_target_lt(ptr);
                         let ptr = CursorNode::wrap(ptr);
-                        return Err(CursorInner {
+                        return Err(Cursor {
                             ptr,
                             root: self.root,
                         });
@@ -402,7 +402,7 @@ mod cursor_via_wand {
 
         /// Move the cursor to the parent node.
         #[expect(unused)]
-        pub fn parent(self) -> Result<ErasedCursorInner, Self> {
+        pub fn parent(self) -> Result<ErasedCursor, Self> {
             let ptr = CursorNode::unwrap(self.ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, rewind_wand) = ptr.untag_target();
@@ -412,7 +412,7 @@ mod cursor_via_wand {
                         let choice = rewind_wand.apply(ptr.into_virtual());
                         let vparent = Choice::choose_left().apply(choice);
                         let parent = parent.with_virtual(vparent);
-                        Ok(CursorInner {
+                        Ok(Cursor {
                             ptr: parent,
                             root: self.root,
                         }
@@ -422,7 +422,7 @@ mod cursor_via_wand {
                         let ptr = ptr.tag_target(rewind_wand);
                         let ptr = pack_target_lt(ptr);
                         let ptr = CursorNode::wrap(ptr);
-                        Err(CursorInner {
+                        Err(Cursor {
                             ptr,
                             root: self.root,
                         })
