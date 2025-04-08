@@ -122,6 +122,23 @@ where
             })
     }
 
+    fn map_field<'this, 'field, PtrPerm>(
+        self: Ptr<PtrPerm, Self>,
+        tok: FieldTok,
+        f: impl for<'sub> FnOnce(
+            Ptr<PointsTo<'sub, PtrPerm::Access>, Self::FieldTy>,
+        ) -> Ptr<PointsTo<'sub, PtrPerm::Access>, Self::FieldTy>,
+    ) -> Ptr<PtrPerm, Self>
+    where
+        PtrPerm: HasRead<'this>,
+    {
+        let this = self.copy();
+        self.get_field(tok).unpack_lt(|(field, field_wand)| {
+            let field = f(field);
+            this.with_virtual(field_wand.apply(field.into_virtual()))
+        })
+    }
+
     #[expect(unused)]
     fn field_ref(&self, tok: FieldTok) -> &Self::FieldTy {
         Ptr::from_ref(self)

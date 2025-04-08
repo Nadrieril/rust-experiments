@@ -106,6 +106,36 @@ impl<OuterPerm, InnerPerm, T> VPtr<OuterPerm, Ptr<InnerPerm, T>> {
         let ptr = unsafe { self.cast_ty() };
         (ptr, inner)
     }
+
+    #[expect(unused)]
+    // TODO: how sound is this?
+    pub fn write_nested_ptr<'this, 'inner, NewInnerPerm>(
+        self,
+        vptr: VPtr<AccessThroughType<'inner, OuterPerm, NewInnerPerm>, T>,
+    ) -> VPtr<OuterPerm, Ptr<NewInnerPerm, T>>
+    where
+        OuterPerm: IsPointsTo<'this>,
+        InnerPerm: IsPointsTo<'inner>,
+        NewInnerPerm: IsPointsTo<'inner>,
+        NewInnerPerm::Access: AccessThrough<OuterPerm::Access>,
+    {
+        self.write_nested_ptr_wand().apply(vptr)
+    }
+
+    pub fn write_nested_ptr_wand<'this, 'inner, NewInnerPerm>(
+        self,
+    ) -> Wand<
+        VPtr<AccessThroughType<'inner, OuterPerm, NewInnerPerm>, T>,
+        VPtr<OuterPerm, Ptr<NewInnerPerm, T>>,
+    >
+    where
+        OuterPerm: IsPointsTo<'this>,
+        InnerPerm: IsPointsTo<'inner>,
+        NewInnerPerm: IsPointsTo<'inner>,
+        NewInnerPerm::Access: AccessThrough<OuterPerm::Access>,
+    {
+        unsafe { Wand::from_thin_air() }
+    }
 }
 
 pub use noperm::*;

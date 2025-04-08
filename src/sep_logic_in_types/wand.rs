@@ -45,6 +45,7 @@ impl<I, O> Wand<I, O> {
     pub fn swap_tuple() -> Wand<(I, O), (O, I)> {
         unsafe { Wand::from_thin_air() }
     }
+    #[expect(unused)]
     pub fn tensor_left<X>(self) -> Wand<(I, X), (O, X)> {
         unsafe { Wand::from_thin_air() }
     }

@@ -44,7 +44,6 @@ impl<Perm: PtrPerm, T, X: Phantom> Ptr<Perm, Tagged<T, X>> {
         let (vptr, tag) = self.into_virtual().untag_target();
         (this.with_virtual(vptr), tag)
     }
-    #[expect(unused)]
     pub fn ignore_tag<'this>(self) -> Ptr<Perm, T>
     where
         Perm: IsPointsTo<'this>,

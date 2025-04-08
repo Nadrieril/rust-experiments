@@ -633,22 +633,18 @@ mod cursor_via_wand {
                                     let wand = VPtr::pack_ty_wand()
                                         .then(ptr_to_field.into_virtual().write_opt_ptr_perm_wand())
                                         .then(wand)
-                                        .then(vpack_target_lt_wand());
+                                        .then(vpack_target_lt_wand())
+                                        .then(FwdNode::wrap_wand());
                                     // old_wand takes 'this and returns Choice<'prev, 'first>
                                     // wand takes 'next and returns Own<'this, FwdNode::Unpacked>
                                     // from there we want to either apply old_wand or tag with old_wand
                                     let wand = wand.times_constant(old_wand).then(Choice::merge(
-                                        FwdNode::wrap_wand()
-                                            .tensor_left()
-                                            // Tag the 'this with the old wand.
-                                            .then(VPtr::tag_target_wand())
+                                        // Tag the 'this with the old wand.
+                                        VPtr::tag_target_wand()
                                             // Forget that wand_output.next = this
                                             .then(vpack_target_lt_wand())
                                             .then(CursorNode::wrap_wand()),
-                                        // Pack the `'this` ptr.
-                                        FwdNode::wrap_wand()
-                                            .tensor_left()
-                                            .then(Wand::swap_tuple())
+                                        Wand::swap_tuple()
                                             // Apply `old_wand` to get `Choice<'prev, 'first>`
                                             .then(Wand::apply_wand())
                                             .then(Choice::choose_right()),
