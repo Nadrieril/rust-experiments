@@ -261,7 +261,6 @@ mod mutate {
         }
     }
     impl<'this, Perm: HasMut<'this>, T> Ptr<Perm, T> {
-        #[expect(unused)]
         pub fn deref_mut(&mut self) -> &mut T {
             self.copy_mut().into_deref_mut()
         }

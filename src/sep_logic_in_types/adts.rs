@@ -122,6 +122,7 @@ where
             })
     }
 
+    #[expect(unused)]
     fn map_field<'this, 'field, PtrPerm>(
         self: Ptr<PtrPerm, Self>,
         tok: FieldTok,
@@ -139,13 +140,11 @@ where
         })
     }
 
-    #[expect(unused)]
     fn field_ref(&self, tok: FieldTok) -> &Self::FieldTy {
         Ptr::from_ref(self)
             .get_field(tok)
             .unpack_lt(|(ptr_to_field, _)| ptr_to_field.deref_exact())
     }
-    #[expect(unused)]
     fn field_mut(&mut self, tok: FieldTok) -> &mut Self::FieldTy {
         Ptr::from_mut(self)
             .get_field(tok)

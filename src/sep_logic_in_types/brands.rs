@@ -1,6 +1,8 @@
 pub use higher_kinded_types::ForLt as PackLt;
 use std::{marker::PhantomData, mem::MaybeUninit};
 
+use super::wand::Wand;
+
 /// Types that are transmutable to/from `PhantomData`.
 ///
 /// Safety: must be transmutable to/from `PhantomData` and have no `Drop` implementation.
@@ -13,6 +15,7 @@ pub unsafe trait Phantom: Sized {
     }
 }
 unsafe impl<T> Phantom for PhantomData<T> {}
+unsafe impl<A: Phantom, B: Phantom> Phantom for (A, B) {}
 
 // Copied from `ghost_cell`.
 pub type InvariantLifetime<'brand> = PhantomData<fn(&'brand ()) -> &'brand ()>;
@@ -26,8 +29,8 @@ pub struct ExistsLt<T: PackLt> {
 
 #[macro_export]
 macro_rules! ExistsLt {
-    (<$first_lt:lifetime, $($lts:lifetime)*> = $($tt:tt)*) => {
-        ExistsLt!(<$first_lt> = ExistsLt!(<$($lts)*> = $($tt)*))
+    (<$first_lt:lifetime, $($lts:lifetime),*> = $($tt:tt)*) => {
+        ExistsLt!(<$first_lt> = ExistsLt!(<$($lts),*> = $($tt)*))
     };
     ($($tt:tt)*) => {
         ExistsLt<higher_kinded_types::ForLt!($($tt)*)>
@@ -51,6 +54,10 @@ impl<T: PackLt> ExistsLt<T> {
     #[expect(unused)]
     pub fn pack_lt_mut<'a>(val: &'a mut T::Of<'_>) -> &'a mut Self {
         unsafe { std::mem::transmute(val) }
+    }
+    pub fn pack_lt_wand<'a>() -> Wand<T::Of<'a>, Self> {
+        // Safety: the operation is just a transmute hence side-effect-free.
+        unsafe { Wand::from_thin_air() }
     }
 
     pub fn unpack_lt<R>(self, f: impl for<'this> FnOnce(T::Of<'this>) -> R) -> R {
@@ -79,6 +86,8 @@ impl<T: PackLt> ExistsLt<T> {
         }
     }
 }
+
+unsafe impl<T: PackLt> Phantom for ExistsLt<T> where for<'a> T::Of<'a>: Phantom {}
 
 /// Witness that `'a` and `'b` are interchangeable, for an notion of "interchangeable" appropriate
 /// to what the brands are used for.

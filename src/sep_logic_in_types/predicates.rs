@@ -27,6 +27,13 @@ pub unsafe trait TransparentWrapper: Sized {
     fn wrap_target_wand<Perm: PtrPerm>() -> Wand<VPtr<Perm, Self::Unwrapped>, VPtr<Perm, Self>> {
         unsafe { Wand::from_thin_air() }
     }
+    fn unwrap_wand() -> Wand<Self, Self::Unwrapped> {
+        unsafe { Wand::from_thin_air() }
+    }
+    #[expect(unused)]
+    fn wrap_wand() -> Wand<Self::Unwrapped, Self> {
+        unsafe { Wand::from_thin_air() }
+    }
 }
 
 /// A value of type `T`, associated with a ZST `X`.
@@ -48,6 +55,7 @@ impl<Perm: PtrPerm, T, X: Phantom> Ptr<Perm, Tagged<T, X>> {
         let (vptr, tag) = self.into_virtual().untag_target();
         (this.with_virtual(vptr), tag)
     }
+    #[expect(unused)]
     pub fn ignore_tag<'this>(self) -> Ptr<Perm, T>
     where
         Perm: IsPointsTo<'this>,
@@ -112,5 +120,35 @@ impl<T, X> std::ops::Deref for Tagged<T, X> {
 impl<T, X> std::ops::DerefMut for Tagged<T, X> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.val
+    }
+}
+
+/// Type-level wrapper type that can only be accessed if `'this` is a brand that corresponds to a
+/// real pointer.
+#[repr(transparent)]
+pub struct IfReal<'this, T>(InvariantLifetime<'this>, T);
+
+unsafe impl<'this, T: Phantom> Phantom for IfReal<'this, T> {}
+
+impl<T: Phantom> IfReal<'static, T> {
+    /// Since there is no real pointer with the `'static` brand, we can create this fake value,
+    /// knowing it won't ever be accessed.
+    pub fn not_real() -> Self {
+        Self(PhantomData, unsafe { T::new() })
+    }
+}
+impl<'this, T: Phantom> IfReal<'this, T> {
+    pub fn lock(x: T) -> Self {
+        Self(PhantomData, x)
+    }
+    pub fn lock_wand() -> Wand<T, Self> {
+        unsafe { Wand::mimic_fn(Self::lock) }
+    }
+    pub fn unlock<U>(self, _: Ptr<PointsTo<'this>, U>) -> T {
+        self.1
+    }
+    #[expect(unused)]
+    pub fn unlock_wand<U>(ptr: Ptr<PointsTo<'this>, U>) -> Wand<Self, T> {
+        unsafe { Wand::mimic_closure(|this: Self| this.unlock(ptr)) }
     }
 }

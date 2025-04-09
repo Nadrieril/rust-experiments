@@ -19,6 +19,13 @@ unsafe impl<'this, Parent> ErasePerms for Node<'this, Parent> {
     type Erased = ErasedNode;
 }
 
+/// Which branch of a node.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Branch {
+    Left,
+    Right,
+}
+
 /// Type-level tokens that represent each field of `Node`.
 #[derive(Clone, Copy)]
 struct FParent;
@@ -128,9 +135,10 @@ impl<'this, Parent: PtrPerm> Node<'this, Parent> {
 
 pub use tree::Tree;
 mod tree {
-    use crate::sep_logic_in_types::tree::cursor_via_wand::Cursor;
-
-    use super::{cursor_via_wand::ErasedCursor, *};
+    use super::{
+        external_wand_cursor::{Cursor, ErasedCursor},
+        *,
+    };
 
     struct NonEmptyTree<'parent>(pub Child<'parent>);
 
@@ -158,9 +166,16 @@ mod tree {
         fn insert(self, val: usize) -> Self {
             self.cursor().unpack_lt(|cursor| {
                 cursor.unpack_lt(|cursor| {
-                    cursor
-                        .insert(val)
-                        .unpack_lt(|cursor| cursor.unpack_lt(|cursor| Self(cursor.rewind())))
+                    cursor.unpack_lt(|cursor| {
+                        cursor.insert(val).unpack_lt(|cursor| {
+                            cursor.unpack_lt(|cursor| {
+                                cursor.unpack_lt(|cursor| {
+                                    let root = cursor.rewind();
+                                    Self(ExistsLt::pack_lt(root))
+                                })
+                            })
+                        })
+                    })
                 })
             })
         }
@@ -195,257 +210,194 @@ mod tree {
     }
 }
 
-mod cursor_via_wand {
-    use crate::sep_logic_in_types::tree::tree::alloc_node;
+mod external_wand_cursor {
+    use super::{tree::alloc_node, *};
 
-    use super::*;
-
-    /// A cursor into a tree. Owns the current subtree normally and uses wands to keep ownership of
-    /// the rest.
+    /// Recursive wand to walk up the tree.
     #[repr(transparent)]
-    struct CursorNode<'this, 'root>(#[allow(unused)] CursorNodeUnpacked<'this, 'root>);
-    type CursorNodeUnpacked<'this, 'root> = ExistsLt!(<'parent> =
-        Tagged<
-            // Owned pointed-to subtree.
-            NormalNode<'this, 'parent>,
-            // The wand contains ownership of the previous nodes. It can be used to rewind one node or
-            // rewind back to the root node.
-            Wand<
-                VPtr<Own<'this>, NormalNode<'this, 'parent>>,
-                Choice<
-                    VPtr<Own<'parent>, CursorNode<'parent, 'root>>,
-                    VPtr<Own<'root>, NormalNode<'root, 'static>>,
-                >,
-            >,
-        >
+    struct Rewind<'this, 'parent, 'root, Access: PtrAccess>(
+        RewindUnwrapped<'this, 'parent, 'root, Access>,
     );
+    type RewindUnwrapped<'this, 'parent, 'root, Access> = Wand<
+        VPtr<PointsTo<'this, Access>, NormalNode<'this, 'parent>>,
+        Choice<
+            IfReal<
+                'parent,
+                ExistsLt!(<'parent_parent> = (
+                    VPtr<PointsTo<'parent, Access>, NormalNode<'parent, 'parent_parent>>,
+                    Rewind<'parent, 'parent_parent, 'root, Access>,
+                )),
+            >,
+            VPtr<PointsTo<'root, Access>, NormalNode<'root, 'static>>,
+        >,
+    >;
 
     // This could be derived.
-    unsafe impl<'this, 'root> TransparentWrapper for CursorNode<'this, 'root> {
-        type Unwrapped = CursorNodeUnpacked<'this, 'root>;
+    unsafe impl<'this, 'parent, 'root, Access: PtrAccess> TransparentWrapper
+        for Rewind<'this, 'parent, 'root, Access>
+    {
+        type Unwrapped = RewindUnwrapped<'this, 'parent, 'root, Access>;
     }
-    unsafe impl<'this, 'root> ErasePerms for CursorNode<'this, 'root> {
-        type Erased = <CursorNodeUnpacked<'this, 'root> as ErasePerms>::Erased;
-    }
+    unsafe impl<Access: PtrAccess> Phantom for Rewind<'_, '_, '_, Access> {}
 
-    pub type ErasedCursor = ExistsLt!(<'this, 'root> = Cursor<'this, 'root>);
-    pub struct Cursor<'this, 'root> {
-        /// Pointer to a subtree.
-        ptr: Ptr<Own<'this>, CursorNode<'this, 'root>>,
+    pub type ErasedCursor<Access = POwn> =
+        ExistsLt!(<'this, 'parent, 'root> = Cursor<'this, 'parent, 'root, Access>);
+    pub struct Cursor<'this, 'parent, 'root, Access: PtrAccess> {
+        /// Pointer to the subtree.
+        ptr: Ptr<PointsTo<'this, Access>, NormalNode<'this, 'parent>>,
+        /// Recursive wand to walk up the tree.
+        rewind: Rewind<'this, 'parent, 'root, Access>,
         /// Pointer to the root of the tree.
         root: Ptr<PointsTo<'root>, ErasedNode>,
     }
 
-    impl<'this, 'root> Cursor<'this, 'root> {
+    impl<'this, Access: PtrAccess> Cursor<'this, 'static, 'this, Access> {
+        pub fn new(ptr: Ptr<PointsTo<'this, Access>, NormalNode<'this, 'static>>) -> Self {
+            let root = ptr.weak_ref();
+            let wand = Choice::merge(Wand::constant(IfReal::not_real()), Wand::id());
+            let rewind = Rewind(wand);
+            Cursor { ptr, rewind, root }
+        }
+    }
+
+    impl<'this, 'parent, 'root, Access: AtLeastRead> Cursor<'this, 'parent, 'root, Access>
+    where
+        // This should always be true but we can't prove it
+        POwn: AccessThrough<Access, AccessThrough = Access>,
+    {
         pub fn val(&self) -> &usize {
-            let ptr = self.ptr.copy_read();
-            let ptr = CursorNode::unwrap_target(ptr);
-            ptr.unpack_target_lt(|ptr| {
-                ptr.ignore_tag()
-                    .get_field(FVal)
-                    .unpack_lt(|(ptr_to_field, _)| ptr_to_field.deref_exact())
-            })
+            self.ptr.deref().field_ref(FVal)
         }
         #[expect(unused)]
-        pub fn val_mut(&mut self) -> &mut usize {
-            let ptr = self.ptr.copy_mut();
-            let ptr = CursorNode::unwrap_target(ptr);
-            ptr.unpack_target_lt(|ptr| {
-                ptr.ignore_tag()
-                    .get_field(FVal)
-                    .unpack_lt(|(ptr_to_field, _)| ptr_to_field.into_deref_mut())
-            })
+        pub fn val_mut(&mut self) -> &mut usize
+        where
+            Access: AtLeastMut,
+        {
+            self.ptr.deref_mut().field_mut(FVal)
         }
 
         /// Insert this value into the current (sorted) subtree. The returned cursor points to the
         /// parent of the newly-added node.
-        pub fn insert(self, val: usize) -> ErasedCursor {
-            let go_right = val >= *self.val();
-            let moved = if go_right {
-                self.go_right()
+        pub fn insert(self, val: usize) -> ErasedCursor<Access>
+        where
+            Access: AtLeastOwn,
+        {
+            let direction = if val >= *self.val() {
+                Branch::Right
             } else {
-                self.go_left()
+                Branch::Left
             };
             // Try to move in the direction the value should go. If we can, recurse, otherwise
             // create a new node.
-            match moved {
-                Ok(child) => child.unpack_lt(|child| child.unpack_lt(|child| child.insert(val))),
-                Err(this) => this
-                    .map_subtree(|ptr| {
-                        let child = alloc_node(Some(ptr.weak_ref()), val);
-                        if go_right {
-                            ptr.map_field(FRight, |field| field.write(Some(child)))
-                        } else {
-                            ptr.map_field(FLeft, |field| field.write(Some(child)))
-                        }
-                    })
-                    .pack_lt(),
+            match self.descend(direction) {
+                Ok(child) => child.unpack_lt(|child| {
+                    child.unpack_lt(|child| child.unpack_lt(|child| child.insert(val)))
+                }),
+                Err(mut this) => {
+                    let child = alloc_node(Some(this.ptr.weak_ref()), val);
+                    if direction == Branch::Right {
+                        *this.ptr.deref_mut().field_mut(FRight) = Some(child);
+                    } else {
+                        *this.ptr.deref_mut().field_mut(FLeft) = Some(child);
+                    }
+                    this.pack_lt()
+                }
             }
         }
-
-        /// Helper.
-        fn map_subtree(
-            self,
-            f: impl for<'parent> FnOnce(
-                Ptr<Own<'this>, NormalNode<'this, 'parent>>,
-            ) -> Ptr<Own<'this>, NormalNode<'this, 'parent>>,
-        ) -> Self {
-            let ptr = CursorNode::unwrap_target(self.ptr);
-            ptr.unpack_target_lt(|ptr| {
-                let (ptr, wand) = ptr.untag_target();
-                let ptr = f(ptr);
-                let ptr = ptr.tag_target(wand);
-                let ptr = pack_target_lt(ptr);
-                let ptr = CursorNode::wrap_target(ptr);
-                Cursor {
-                    ptr,
-                    root: self.root,
-                }
-            })
-        }
     }
 
-    impl<'this> Cursor<'this, 'this> {
-        pub fn new(ptr: Ptr<Own<'this>, NormalNode<'this, 'static>>) -> Self {
-            let root = ptr.weak_ref();
-            let wand = Choice::merge(Wand::constant(VPtr::new_impossible()), Wand::id());
-            let ptr = ptr.tag_target(wand);
-            let ptr = pack_target_lt(ptr);
-            let ptr = CursorNode::wrap_target(ptr);
-            Cursor { ptr, root }
-        }
-    }
-
-    impl<'this, 'root> Cursor<'this, 'root> {
+    impl<'this, 'parent, 'root, Access: AtLeastRead> Cursor<'this, 'parent, 'root, Access>
+    where
+        // This should always be true but we can't prove it
+        POwn: AccessThrough<Access, AccessThrough = Access>,
+    {
         /// Helper.
-        pub fn pack_lt(self) -> ErasedCursor {
-            ExistsLt::pack_lt(ExistsLt::pack_lt(self))
+        pub fn pack_lt(self) -> ErasedCursor<Access> {
+            ExistsLt::pack_lt(ExistsLt::pack_lt(ExistsLt::pack_lt(self)))
         }
 
-        pub fn go_left(self) -> Result<ErasedCursor, Self> {
-            self.go_child(FLeft)
-        }
-        pub fn go_right(self) -> Result<ErasedCursor, Self> {
-            self.go_child(FRight)
-        }
         /// Move the cursor to the given child.
-        fn go_child<FieldTok>(self, tok: FieldTok) -> Result<ErasedCursor, Self>
-        where
-            FieldTok: Copy,
-            for<'parent> NormalNode<'this, 'parent>:
-                HasField<FieldTok, FieldTy = Option<Child<'this>>>,
-        {
-            let ptr = CursorNode::unwrap_target(self.ptr);
-            ptr.unpack_target_lt(|ptr| {
-                let (ptr, rewind_wand) = ptr.untag_target();
-                // ptr: Ptr<Own<'this>, NormalNode<'this, 'parent>>
-                // rewind_wand: Wand<
-                //     VPtr<Own<'this>, NormalNode<'this, 'parent>>,
-                //     Choice<
-                //         VPtr<Own<'parent>, CursorNode<'parent, 'root>>,
-                //         VPtr<Own<'root>, NormalNode<'root, 'static>>,
-                //     >,
-                // >
-                match ptr.read_child(tok) {
-                    Ok(x) => {
-                        x.unpack_lt(|(child, child_wand)| {
-                            // child: Ptr<Own<'child>, NormalNode<'child, 'this>>,
-                            // child_wand: Wand<
-                            //     VPtr<Own<'child>, NormalNode<'child, 'this>>,
-                            //     VPtr<Own<'this>, Self>
-                            // >
-                            // Wand input: VPtr<Own<'child>, NormalNode<'child, 'this>>
-                            let wand = child_wand
-                                // VPtr<Own<'this>, NormalNode<'this, 'parent>>
-                                .times_constant(rewind_wand)
-                                // (VPtr<...>, Wand<...>)
-                                .then(Choice::merge(
-                                    // Pack the wand to get a `CursorNode` back.
-                                    VPtr::tag_target_wand()
-                                        .then(vpack_target_lt_wand())
-                                        .then(CursorNode::wrap_target_wand()),
-                                    // Apply `rewind_wand` to get `Choice<'prev, 'first>`
-                                    Wand::swap_tuple()
-                                        .then(Wand::apply_wand())
-                                        .then(Choice::choose_right()),
-                                ));
-                            // wand: Wand<
-                            //     VPtr<Own<'child>, NormalNode<'child, 'this>>,
-                            //     Choice<
-                            //         VPtr<Own<'this>, CursorNode<'this, 'root>>,
-                            //         VPtr<Own<'root>, NormalNode<'root, 'static>>,
-                            //     >,
-                            // >
-                            let child = child.tag_target(wand);
-                            let child = pack_target_lt(child);
-                            let child = CursorNode::wrap_target(child);
-                            Ok(Cursor {
-                                ptr: child,
-                                root: self.root,
-                            }
-                            .pack_lt())
-                        })
-                    }
-                    Err(ptr) => {
-                        // No child, repack the pointer into a cursor node pointer.
-                        let ptr = ptr.tag_target(rewind_wand);
-                        let ptr = pack_target_lt(ptr);
-                        let ptr = CursorNode::wrap_target(ptr);
-                        return Err(Cursor {
-                            ptr,
-                            root: self.root,
-                        });
-                    }
+        pub fn descend(self, branch: Branch) -> Result<ErasedCursor<Access>, Self> {
+            let Self { rewind, ptr, root } = self;
+            let read_child = match branch {
+                Branch::Left => ptr.read_child(FLeft),
+                Branch::Right => ptr.read_child(FRight),
+            };
+            match read_child {
+                Ok(x) => {
+                    x.unpack_lt(|(child, child_wand)| {
+                        // child: Ptr<PointsTo<'child, Access>, NormalNode<'child, 'this>>,
+                        // child_wand: Wand<
+                        //     VPtr<PointsTo<'child, Access>, NormalNode<'child, 'this>>,
+                        //     VPtr<PointsTo<'this, Access>, NormalNode<'this, 'parent>>
+                        // >
+                        // Wand input: VPtr<PointsTo<'child, Access>, NormalNode<'child, 'this>>
+                        let wand = child_wand
+                            // VPtr<PointsTo<'this, Access>, NormalNode<'this, 'parent>>
+                            .times_constant(rewind)
+                            // (VPtr<...>, Rewind<...>)
+                            .then(Choice::merge(
+                                ExistsLt::pack_lt_wand().then(IfReal::lock_wand()),
+                                Wand::swap_tuple()
+                                    .then(Wand::tensor_left(Rewind::unwrap_wand()))
+                                    // Apply the wand to get `Choice<'parent, 'root>`
+                                    .then(Wand::apply_wand())
+                                    // Choose the root
+                                    .then(Choice::choose_right()),
+                            ));
+                        let cursor = Cursor {
+                            rewind: Rewind(wand),
+                            ptr: child,
+                            root,
+                        };
+                        Ok(cursor.pack_lt())
+                    })
                 }
-            })
+                Err(ptr) => Err(Self { rewind, ptr, root }),
+            }
         }
 
         /// Move the cursor to the parent node.
         #[expect(unused)]
-        pub fn parent(self) -> Result<ErasedCursor, Self> {
-            let ptr = CursorNode::unwrap_target(self.ptr);
-            ptr.unpack_target_lt(|ptr| {
-                let (ptr, rewind_wand) = ptr.untag_target();
-                let (ptr, parent) = ptr.read_field(FParent);
-                match parent {
-                    Some(parent) => {
-                        let choice = rewind_wand.apply(ptr.into_virtual());
-                        let vparent = Choice::choose_left().apply(choice);
-                        let parent = parent.with_virtual(vparent);
-                        Ok(Cursor {
-                            ptr: parent,
-                            root: self.root,
-                        }
-                        .pack_lt())
-                    }
-                    None => {
-                        let ptr = ptr.tag_target(rewind_wand);
-                        let ptr = pack_target_lt(ptr);
-                        let ptr = CursorNode::wrap_target(ptr);
-                        Err(Cursor {
-                            ptr,
-                            root: self.root,
+        pub fn ascend(self) -> Result<ErasedCursor<Access>, Self>
+        where
+            POwn: AccessThrough<Access>,
+        {
+            match *self.ptr.deref().field_ref(FParent) {
+                None => Err(self),
+                Some(parent) => {
+                    let Self { rewind, ptr, root } = self;
+                    let Rewind(wand) = rewind;
+                    wand.then(Choice::choose_left())
+                        .apply(ptr.into_virtual())
+                        .unlock(parent.weak_ref())
+                        .unpack_lt(|(vparent, rewind)| {
+                            let cursor = Cursor {
+                                rewind,
+                                ptr: parent.with_virtual(vparent),
+                                root,
+                            };
+                            Ok(cursor.pack_lt())
                         })
-                    }
                 }
-            })
+            }
         }
 
         /// Recover ownership of the tree root.
-        pub fn rewind(self) -> Child<'static> {
-            let ptr = CursorNode::unwrap_target(self.ptr);
-            ptr.unpack_target_lt(|ptr| {
-                let (ptr, wand) = ptr.untag_target();
-                let vroot = wand.then(Choice::choose_right()).apply(ptr.into_virtual());
-                let root = self.root.with_virtual(vroot);
-                ExistsLt::pack_lt(root)
-            })
+        pub fn rewind(self) -> Ptr<PointsTo<'root, Access>, NormalNode<'root, 'static>> {
+            let vroot = self
+                .rewind
+                .0
+                .then(Choice::choose_right())
+                .apply(self.ptr.into_virtual());
+            self.root.with_virtual(vroot)
         }
     }
 }
 
 mod iter {
-    use super::*;
+    use super::{external_wand_cursor::ErasedCursor, *};
+    // TODO: proper iterator that holds a single node pointer
 
     // In-order traversal
     pub struct TreeRef<'a>(
@@ -485,6 +437,14 @@ mod iter {
                 })
             })
         }
+    }
+
+    /// Pointer to an edge within the tree.
+    #[expect(unused)]
+    pub struct EdgeHandle<Access: PtrAccess> {
+        cursor: ErasedCursor<Access>,
+        // Which child of the node we're pointing to.
+        branch: Branch,
     }
 }
 

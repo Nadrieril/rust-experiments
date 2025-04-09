@@ -1,6 +1,12 @@
 use std::marker::PhantomData;
 
-use super::brands::Phantom;
+use crate::ExistsLt;
+
+use super::{
+    brands::{ExistsLt, Phantom},
+    permissions::{PointsTo, PtrAccess},
+    vptr::VPtr,
+};
 
 /// Represents a side-effect-free `FnOnce(I) -> O` between ZSTs. This can be used to represent
 /// complex permission operations that are unobservable at runtime.
@@ -45,7 +51,6 @@ impl<I, O> Wand<I, O> {
     pub fn swap_tuple() -> Wand<(I, O), (O, I)> {
         unsafe { Wand::from_thin_air() }
     }
-    #[expect(unused)]
     pub fn tensor_left<X>(self) -> Wand<(I, X), (O, X)> {
         unsafe { Wand::from_thin_air() }
     }
@@ -82,6 +87,17 @@ impl<I, J, O> Wand<(I, J), O> {
     #[expect(unused)]
     pub fn curry(self) -> Wand<I, Wand<J, O>> {
         unsafe { Wand::from_thin_air() }
+    }
+}
+
+impl Wand<(), ()> {
+    /// By virtue of the unforgeability of brands, it's impossible to construct a permission with
+    /// the `'impossible` brand. From impossibility one can deduce anything, which this wand
+    /// represents.
+    #[expect(unused)]
+    pub fn ex_falso<Access: PtrAccess, T, X>(
+    ) -> ExistsLt!(<'impossible> = Wand<VPtr<PointsTo<'impossible, Access>, T>, X>) {
+        ExistsLt::pack_lt(unsafe { Wand::from_thin_air() })
     }
 }
 
