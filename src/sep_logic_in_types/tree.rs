@@ -136,7 +136,8 @@ impl<'this, Parent: PtrPerm> Node<'this, Parent> {
 pub use tree::Tree;
 mod tree {
     use super::{
-        external_wand_cursor::{Cursor, ErasedCursor},
+        external_wand_cursor::{Cursor, CursorInner},
+        iter::Iter,
         *,
     };
 
@@ -160,30 +161,22 @@ mod tree {
         fn new(val: usize) -> Self {
             Self(alloc_node(None, val))
         }
-        fn cursor(self) -> ErasedCursor {
-            self.0.unpack_lt(|ptr| Cursor::new(ptr).pack_lt())
+        fn cursor(self) -> Cursor {
+            self.0.unpack_lt(|ptr| CursorInner::new(ptr).pack_lt())
         }
         fn insert(self, val: usize) -> Self {
             self.cursor().unpack_lt(|cursor| {
-                cursor.unpack_lt(|cursor| {
-                    cursor.unpack_lt(|cursor| {
-                        cursor.insert(val).unpack_lt(|cursor| {
-                            cursor.unpack_lt(|cursor| {
-                                cursor.unpack_lt(|cursor| {
-                                    let root = cursor.rewind();
-                                    Self(ExistsLt::pack_lt(root))
-                                })
-                            })
-                        })
-                    })
+                cursor.insert(val).unpack_lt(|cursor| {
+                    let root = cursor.rewind();
+                    Self(ExistsLt::pack_lt(root))
                 })
             })
         }
-        /// Traverse in-order. The closure gets each element and the current depth.
-        fn traverse<'a>(&'a self, f: impl FnMut(&'a usize, usize)) {
-            self.0.unpack_lt_ref(|ptr| {
-                iter::TreeRef::from_ptr(ptr.copy_read()).traverse(f);
-            })
+        fn iter<'a>(&'a self) -> Iter<'a> {
+            let cursor = self
+                .0
+                .unpack_lt_ref(|ptr| CursorInner::new(ptr.copy_read()).pack_lt());
+            Iter::new(cursor)
         }
     }
 
@@ -201,10 +194,10 @@ mod tree {
                 None => NonEmptyTree::new(val),
             })
         }
-        /// Traverse in-order. The closure gets each element and the current depth.
-        pub fn traverse<'a>(&'a self, f: impl FnMut(&'a usize, usize)) {
-            if let Some(t) = &self.tree {
-                t.traverse(f);
+        pub fn iter<'a>(&'a self) -> Iter<'a> {
+            match &self.tree {
+                Some(tree) => tree.iter(),
+                None => Iter::new_empty(),
             }
         }
     }
@@ -240,45 +233,55 @@ mod external_wand_cursor {
     }
     unsafe impl<Access: PtrAccess> Phantom for Rewind<'_, '_, '_, Access> {}
 
-    pub type ErasedCursor<Access = POwn> =
-        ExistsLt!(<'this, 'parent, 'root> = Cursor<'this, 'parent, 'root, Access>);
-    pub struct Cursor<'this, 'parent, 'root, Access: PtrAccess> {
+    pub struct CursorInner<'this, 'parent, 'root, Access: PtrAccess> {
         /// Pointer to the subtree.
-        ptr: Ptr<PointsTo<'this, Access>, NormalNode<'this, 'parent>>,
+        pub ptr: Ptr<PointsTo<'this, Access>, NormalNode<'this, 'parent>>,
         /// Recursive wand to walk up the tree.
         rewind: Rewind<'this, 'parent, 'root, Access>,
         /// Pointer to the root of the tree.
         root: Ptr<PointsTo<'root>, ErasedNode>,
     }
 
-    impl<'this, Access: PtrAccess> Cursor<'this, 'static, 'this, Access> {
+    impl<'this, Access: PtrAccess> CursorInner<'this, 'static, 'this, Access> {
         pub fn new(ptr: Ptr<PointsTo<'this, Access>, NormalNode<'this, 'static>>) -> Self {
             let root = ptr.weak_ref();
             let wand = Choice::merge(Wand::constant(IfReal::not_real()), Wand::id());
             let rewind = Rewind(wand);
-            Cursor { ptr, rewind, root }
+            CursorInner { ptr, rewind, root }
         }
     }
 
-    impl<'this, 'parent, 'root, Access: AtLeastRead> Cursor<'this, 'parent, 'root, Access>
+    impl<'this, 'parent, 'root, Access: AtLeastRead> CursorInner<'this, 'parent, 'root, Access>
     where
         // This should always be true but we can't prove it
         POwn: AccessThrough<Access, AccessThrough = Access>,
     {
+        pub fn copy_ptr(&self) -> Ptr<PointsTo<'this>, NormalNode<'this, 'parent>> {
+            self.ptr.copy()
+        }
+        pub fn node(&self) -> &NormalNode<'this, 'parent> {
+            self.ptr.deref()
+        }
+        pub fn node_mut(&mut self) -> &mut NormalNode<'this, 'parent>
+        where
+            Access: AtLeastMut,
+        {
+            self.ptr.deref_mut()
+        }
         pub fn val(&self) -> &usize {
-            self.ptr.deref().field_ref(FVal)
+            &self.node().val
         }
         #[expect(unused)]
         pub fn val_mut(&mut self) -> &mut usize
         where
             Access: AtLeastMut,
         {
-            self.ptr.deref_mut().field_mut(FVal)
+            &mut self.node_mut().val
         }
 
         /// Insert this value into the current (sorted) subtree. The returned cursor points to the
         /// parent of the newly-added node.
-        pub fn insert(self, val: usize) -> ErasedCursor<Access>
+        pub fn insert(self, val: usize) -> Cursor<Access>
         where
             Access: AtLeastOwn,
         {
@@ -290,9 +293,7 @@ mod external_wand_cursor {
             // Try to move in the direction the value should go. If we can, recurse, otherwise
             // create a new node.
             match self.descend(direction) {
-                Ok(child) => child.unpack_lt(|child| {
-                    child.unpack_lt(|child| child.unpack_lt(|child| child.insert(val)))
-                }),
+                Ok(child) => child.unpack_lt(|child| child.insert(val)),
                 Err(mut this) => {
                     let child = alloc_node(Some(this.ptr.weak_ref()), val);
                     if direction == Branch::Right {
@@ -306,18 +307,19 @@ mod external_wand_cursor {
         }
     }
 
-    impl<'this, 'parent, 'root, Access: AtLeastRead> Cursor<'this, 'parent, 'root, Access>
+    impl<'this, 'parent, 'root, Access: AtLeastRead> CursorInner<'this, 'parent, 'root, Access>
     where
         // This should always be true but we can't prove it
         POwn: AccessThrough<Access, AccessThrough = Access>,
     {
-        /// Helper.
-        pub fn pack_lt(self) -> ErasedCursor<Access> {
-            ExistsLt::pack_lt(ExistsLt::pack_lt(ExistsLt::pack_lt(self)))
+        pub fn pack_lt(self) -> Cursor<Access> {
+            Cursor(ExistsLt::pack_lt(ExistsLt::pack_lt(ExistsLt::pack_lt(
+                self,
+            ))))
         }
 
         /// Move the cursor to the given child.
-        pub fn descend(self, branch: Branch) -> Result<ErasedCursor<Access>, Self> {
+        pub fn descend(self, branch: Branch) -> Result<Cursor<Access>, Self> {
             let Self { rewind, ptr, root } = self;
             let read_child = match branch {
                 Branch::Left => ptr.read_child(FLeft),
@@ -345,7 +347,7 @@ mod external_wand_cursor {
                                     // Choose the root
                                     .then(Choice::choose_right()),
                             ));
-                        let cursor = Cursor {
+                        let cursor = CursorInner {
                             rewind: Rewind(wand),
                             ptr: child,
                             root,
@@ -358,8 +360,7 @@ mod external_wand_cursor {
         }
 
         /// Move the cursor to the parent node.
-        #[expect(unused)]
-        pub fn ascend(self) -> Result<ErasedCursor<Access>, Self>
+        pub fn ascend(self) -> Result<Cursor<Access>, Self>
         where
             POwn: AccessThrough<Access>,
         {
@@ -372,7 +373,7 @@ mod external_wand_cursor {
                         .apply(ptr.into_virtual())
                         .unlock(parent.weak_ref())
                         .unpack_lt(|(vparent, rewind)| {
-                            let cursor = Cursor {
+                            let cursor = CursorInner {
                                 rewind,
                                 ptr: parent.with_virtual(vparent),
                                 root,
@@ -393,70 +394,162 @@ mod external_wand_cursor {
             self.root.with_virtual(vroot)
         }
     }
+
+    pub struct Cursor<Access: PtrAccess = POwn>(
+        ExistsLt!(<'this, 'parent, 'root> = CursorInner<'this, 'parent, 'root, Access>),
+    );
+    impl<Access: PtrAccess> Cursor<Access> {
+        pub fn unpack_lt<R>(
+            self,
+            f: impl for<'this, 'parent, 'root> FnOnce(CursorInner<'this, 'parent, 'root, Access>) -> R,
+        ) -> R {
+            self.0
+                .unpack_lt(|cursor| cursor.unpack_lt(|cursor| cursor.unpack_lt(f)))
+        }
+        pub fn unpack_lt_ref<'a, R>(
+            &'a self,
+            f: impl for<'this, 'parent, 'root> FnOnce(
+                &'a CursorInner<'this, 'parent, 'root, Access>,
+            ) -> R,
+        ) -> R {
+            self.0
+                .unpack_lt_ref(|cursor| cursor.unpack_lt_ref(|cursor| cursor.unpack_lt_ref(f)))
+        }
+    }
+    impl<Access: AtLeastRead> Cursor<Access>
+    where
+        // This should always be true but we can't prove it
+        POwn: AccessThrough<Access, AccessThrough = Access>,
+    {
+        pub fn descend(self, branch: Branch) -> Result<Self, Self> {
+            self.unpack_lt(|cursor| cursor.descend(branch).map_err(CursorInner::pack_lt))
+        }
+        pub fn ascend(self) -> Result<Self, Self>
+        where
+            POwn: AccessThrough<Access>,
+        {
+            self.unpack_lt(|cursor| cursor.ascend().map_err(CursorInner::pack_lt))
+        }
+        pub fn rewind(
+            self,
+        ) -> ExistsLt!(<'root> = Ptr<PointsTo<'root, Access>, NormalNode<'root, 'static>>) {
+            self.unpack_lt(|cursor| ExistsLt::pack_lt(cursor.rewind()))
+        }
+    }
 }
 
 mod iter {
-    use super::{external_wand_cursor::ErasedCursor, *};
-    // TODO: proper iterator that holds a single node pointer
+    use super::{external_wand_cursor::Cursor, *};
 
-    // In-order traversal
-    pub struct TreeRef<'a>(
-        ExistsLt!(<'this, 'parent> = Ptr<Read<'this, 'a>, NormalNode<'this, 'parent>>),
-    );
+    /// Pointer to an edge within the tree.
+    pub struct EdgeHandle<Access: PtrAccess> {
+        /// Cursor into the tree.
+        cursor: Cursor<Access>,
+        /// Depth of the pointed-to node.
+        depth: usize,
+    }
 
-    impl<'a> TreeRef<'a> {
-        pub fn from_ptr<'this, 'parent>(
-            ptr: Ptr<Read<'this, 'a>, NormalNode<'this, 'parent>>,
-        ) -> Self {
-            Self(ExistsLt::pack_lt(ExistsLt::pack_lt(ptr)))
+    impl<Access: AtLeastRead> EdgeHandle<Access>
+    where
+        // This should always be true but we can't prove it
+        POwn: AccessThrough<Access, AccessThrough = Access>,
+    {
+        /// Make a handle on the given subtree. The handle will start on the leftmost node of that
+        /// subtree.
+        pub fn new(mut cursor: Cursor<Access>, mut depth: usize) -> Self {
+            // Start with the leftmost node.
+            let cursor = loop {
+                match cursor.descend(Branch::Left) {
+                    Ok(c) => {
+                        depth += 1;
+                        cursor = c
+                    }
+                    Err(c) => break c,
+                }
+            };
+            Self { cursor, depth }
         }
 
-        /// Traverse in-order. The closure gets each element and the current depth.
-        pub fn traverse(self, mut f: impl FnMut(&'a usize, usize)) {
-            self.traverse_inner(&mut f, 0);
-        }
-        fn traverse_inner(self, f: &mut impl FnMut(&'a usize, usize), depth: usize) {
-            self.0.unpack_lt(|ptr| {
-                ptr.unpack_lt(|ptr| {
-                    if let Ok(x) = ptr.read_child(FLeft) {
-                        x.unpack_lt(|(child, _)| {
-                            // child: Ptr<Read<'child, 'a>, NormalNode<'child, 'this>>,
-                            TreeRef::from_ptr(child).traverse_inner(f, depth + 1);
-                        })
+        pub fn next(
+            self,
+        ) -> Result<
+            Self,
+            ExistsLt!(<'root> = Ptr<PointsTo<'root, Access>, NormalNode<'root, 'static>>),
+        > {
+            let Self { cursor, mut depth } = self;
+            // If we can move right, go to that subtree. If we can't, go parent until we're coming
+            // from a left node.
+            match cursor.descend(Branch::Right) {
+                Ok(cursor) => Ok(Self::new(cursor, depth + 1)),
+                Err(mut cursor) => {
+                    loop {
+                        let prev_node = cursor.unpack_lt_ref(|cursor| {
+                            cursor.copy_ptr().erase_target_perms().noperm()
+                        });
+                        let parent = cursor.ascend().map_err(|root| root.rewind())?;
+                        depth = depth - 1;
+                        let coming_from_left =
+                            parent.unpack_lt_ref(|parent| {
+                                parent.node().left.as_ref().is_some_and(|ptr| {
+                                    ptr.unpack_lt_ref(|ptr| ptr.addr_eq(&prev_node))
+                                })
+                            });
+                        if coming_from_left {
+                            // We're coming from the left, hence the new node comes
+                            // after the nodes we've seen so far.
+                            return Ok(Self {
+                                cursor: parent,
+                                depth,
+                            });
+                        } else {
+                            // We're coming from the right, we must keep going up.
+                            cursor = parent;
+                        }
                     }
-                    ptr.get_field(FVal).unpack_lt(|(val_ptr, _)| {
-                        let val = val_ptr.deref_exact();
-                        f(val, depth);
-                    });
-                    if let Ok(x) = ptr.read_child(FRight) {
-                        x.unpack_lt(|(child, _)| {
-                            // child: Ptr<Read<'child, 'a>, NormalNode<'child, 'this>>,
-                            TreeRef::from_ptr(child).traverse_inner(f, depth + 1);
-                        })
-                    }
-                })
-            })
+                }
+            }
         }
     }
 
-    /// Pointer to an edge within the tree.
-    #[expect(unused)]
-    pub struct EdgeHandle<Access: PtrAccess> {
-        cursor: ErasedCursor<Access>,
-        // Which child of the node we're pointing to.
-        branch: Branch,
+    // TODO: mutable/by-val iterator.
+    // TODO: I must relinquish access to the already-visited nodes if I want to return mut refs.
+    // Hence must be able to represent this. Could go with access generics, but that won't work for
+    // btree. how tf do I represent a list of pointers, some of which have been invalidated??
+    pub struct Iter<'a>(Option<EdgeHandle<PRead<'a>>>);
+
+    impl<'a> Iter<'a> {
+        pub(super) fn new_empty() -> Self {
+            Iter(None)
+        }
+        pub(super) fn new(cursor: Cursor<PRead<'a>>) -> Self {
+            Iter(Some(EdgeHandle::new(cursor, 0)))
+        }
+    }
+
+    impl<'a> Iterator for Iter<'a> {
+        type Item = (&'a usize, usize);
+        fn next(&mut self) -> Option<Self::Item> {
+            let handle = self.0.take()?;
+            let depth = handle.depth;
+            let val = handle.cursor.unpack_lt_ref(|cursor| {
+                cursor
+                    .ptr
+                    .get_field(FVal)
+                    .unpack_lt(|(ptr, _)| ptr.deref_exact())
+            });
+            self.0 = handle.next().ok();
+            Some((val, depth))
+        }
     }
 }
 
 #[test]
 fn test_tree() {
-    fn assert_tree(t: &Tree, shape: &[&str]) {
-        let mut iter = shape.iter();
-        t.traverse(|val, depth| {
-            let expected = iter.next().unwrap();
-            let actual = format!("{}{val}", " ".repeat(depth));
-            assert_eq!(expected, &actual)
-        });
+    fn assert_tree(t: &Tree, expected: &[&str]) {
+        t.iter()
+            .map(|(val, depth)| format!("{}{val}", " ".repeat(depth)))
+            .zip(expected)
+            .for_each(|(actual, expected)| assert_eq!(expected, &actual));
     }
     let mut tree = Tree::new();
     tree.insert(5);

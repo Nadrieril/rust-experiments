@@ -52,12 +52,8 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     pub unsafe fn cast_ty<U>(self) -> Ptr<Perm, U> {
         unsafe { Ptr::new_with_vptr(self.ptr.cast(), self.vptr.cast_ty()) }
     }
-    pub unsafe fn cast_perm<'this, NewPerm>(self) -> Ptr<NewPerm, T>
-    where
-        Perm: IsPointsTo<'this>,
-        NewPerm: IsPointsTo<'this>,
-    {
-        self.map_virtual(|v| unsafe { v.cast_perm() })
+    pub unsafe fn cast_perm<'this, NewPerm: PtrPerm>(self) -> Ptr<NewPerm, T> {
+        unsafe { Ptr::new_with_vptr(self.ptr, self.vptr.cast_perm()) }
     }
     pub unsafe fn cast_access<'this, NewPerm>(self) -> Ptr<NewPerm, T>
     where
@@ -119,6 +115,9 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
     {
         unsafe { self.copy().cast_ty() }
     }
+    pub fn noperm(self) -> Ptr<NoPerm, T> {
+        unsafe { self.cast_perm() }
+    }
 
     pub fn map_virtual<'this, NewPerm, U>(
         self,
@@ -161,6 +160,10 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         ptr.map_virtual(|v| VPtr::pack_perm(v))
     }
 
+    pub fn addr_eq<Q, U>(&self, other: &Ptr<Q, U>) -> bool {
+        self.ptr.addr() == other.ptr.addr()
+    }
+
     /// Compare two pointers for equality. Because of the `HasAllocated` constraint, the target can
     /// never have been deallocated, so address equality implies that the pointers are
     /// interchangeable. The returned equality predicate is a witness of this interchangeability.
@@ -172,7 +175,7 @@ impl<Perm: PtrPerm, T> Ptr<Perm, T> {
         Perm: HasAllocated<'this>,
         Q: HasAllocated<'other>,
     {
-        if self.ptr.addr() == other.ptr.addr() {
+        if self.addr_eq(other) {
             Some(unsafe { EqPredicate::make() })
         } else {
             None
