@@ -149,7 +149,7 @@ mod list_helpers {
         }
         pub fn pop_front(self) -> (Option<Self>, Option<usize>) {
             self.into_ptr().unpack_lt(|ptr| {
-                let ptr = FwdNode::unwrap(ptr);
+                let ptr = FwdNode::unwrap_target(ptr);
                 ptr.unpack_target_lt(|ptr| {
                     // ptr: Ptr<
                     //     Own<'this>,
@@ -164,11 +164,11 @@ mod list_helpers {
                     let list = next.map(|next| {
                         // next: Ptr<Own<'next, FwdNode<'next, 'this>>, Node>
                         let next = next.unpack_ty();
-                        let next = FwdNode::unwrap(next);
+                        let next = FwdNode::unwrap_target(next);
                         next.unpack_target_lt(|next| {
                             let (next, _) = next.write_field(FPrev, prev);
                             let next = pack_target_lt(next);
-                            let next = FwdNode::wrap(next);
+                            let next = FwdNode::wrap_target(next);
                             // next: Ptr<Own<'next, FwdNode<'next, 'prev>>, Node>
                             Self::from_ptr(next)
                         })
@@ -197,12 +197,12 @@ mod list_helpers {
             // Create a new node.
             let node = match next_or_prev {
                 Ok(next) => {
-                    let next = FwdNode::unwrap(next);
+                    let next = FwdNode::unwrap_target(next);
                     next.unpack_target_lt(|next| {
                         // Update `next.prev` to point to `new`.
                         let (next, prev) = next.write_field(FPrev, Some(new.weak_ref()));
                         let next = pack_target_lt(next);
-                        let next = FwdNode::wrap(next);
+                        let next = FwdNode::wrap_target(next);
                         let next = next.pack_ty();
                         // `'next` only exists in the current scope so we must pack the existential
                         // here.
@@ -326,7 +326,7 @@ impl<'a> Iterator for ListIter<'a> {
         fn advance<'this, 'prev, 'a>(
             ptr: Ptr<Read<'this, 'a>, FwdNode<'this, 'prev>>,
         ) -> Option<ExistsLt!(Ptr<Read<'_, 'a>, FwdNode<'_, 'this>>)> {
-            let ptr = FwdNode::unwrap(ptr);
+            let ptr = FwdNode::unwrap_target(ptr);
             // ptr: Ptr<
             //    Read<'this, 'a>,
             //    ExistsLt!('next,
@@ -344,7 +344,7 @@ impl<'a> Iterator for ListIter<'a> {
         self.0.take()?.unpack_lt(|ptr| {
             ptr.unpack_lt(|ptr| {
                 let val = ptr
-                    .unwrap()
+                    .unwrap_target()
                     .unpack_target_lt(|ptr| &ptr.erase_target_perms().deref_exact().val);
                 self.0 = advance(ptr).map(ExistsLt::pack_lt);
                 Some(val)
@@ -366,7 +366,7 @@ impl<'a> Iterator for ListIterMut<'a> {
             ExistsLt!(<'next> = Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, PointsTo<'next>>>),
             Option<ExistsLt!(Ptr<Mut<'_, 'a>, FwdNode<'_, 'this>>)>,
         ) {
-            let ptr = FwdNode::unwrap(ptr);
+            let ptr = FwdNode::unwrap_target(ptr);
             ptr.unpack_target_lt(|ptr| {
                 // ptr: Ptr<Mut<'this, 'a>, Node<PointsTo<'prev>, Own<'next, FwdNode<'next, 'this>>>>
                 let (ptr, next) = ptr.read_field(FNext);
@@ -551,14 +551,14 @@ mod cursor_via_wand {
 
     impl<'this> ListCursorInner<'this, 'this> {
         pub fn new(ptr: Ptr<Own<'this>, FwdNode<'this, 'static>>) -> Self {
-            let ptr = FwdNode::unwrap(ptr);
+            let ptr = FwdNode::unwrap_target(ptr);
             ptr.unpack_target_lt(|ptr| {
                 let ptr = pack_target_lt(ptr);
                 let wand = Choice::merge(Wand::constant(VPtr::new_impossible()), Wand::id());
-                let ptr = FwdNode::wrap(ptr);
+                let ptr = FwdNode::wrap_target(ptr);
                 let ptr = ptr.tag_target(wand);
                 let ptr = pack_target_lt(ptr);
-                let ptr = CursorNode::wrap(ptr);
+                let ptr = CursorNode::wrap_target(ptr);
                 let first = ptr.weak_ref();
                 ListCursorInner { ptr, first }
             })
@@ -607,10 +607,10 @@ mod cursor_via_wand {
             Ptr<Own<'this>, CursorNode<'this, 'first>>,
         > {
             let this = ptr.copy();
-            let ptr = CursorNode::unwrap(ptr);
+            let ptr = CursorNode::unwrap_target(ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, old_wand) = ptr.untag_target();
-                let ptr = FwdNode::unwrap(ptr);
+                let ptr = FwdNode::unwrap_target(ptr);
                 ptr.unpack_target_lt(|ptr| {
                     // ptr: Ptr<
                     //     Own<'this>,
@@ -633,7 +633,7 @@ mod cursor_via_wand {
                                         .then(ptr_to_field.into_virtual().write_opt_ptr_perm_wand())
                                         .then(wand)
                                         .then(vpack_target_lt_wand())
-                                        .then(FwdNode::wrap_wand());
+                                        .then(FwdNode::wrap_target_wand());
                                     // old_wand takes 'this and returns Choice<'prev, 'first>
                                     // wand takes 'next and returns Own<'this, FwdNode::Unpacked>
                                     // from there we want to either apply old_wand or tag with old_wand
@@ -642,7 +642,7 @@ mod cursor_via_wand {
                                         VPtr::tag_target_wand()
                                             // Forget that wand_output.next = this
                                             .then(vpack_target_lt_wand())
-                                            .then(CursorNode::wrap_wand()),
+                                            .then(CursorNode::wrap_target_wand()),
                                         Wand::swap_tuple()
                                             // Apply `old_wand` to get `Choice<'prev, 'first>`
                                             .then(Wand::apply_wand())
@@ -652,7 +652,7 @@ mod cursor_via_wand {
                                     let next = next.unpack_ty();
                                     let next = next.tag_target(wand);
                                     let next = pack_target_lt(next);
-                                    let next = CursorNode::wrap(next);
+                                    let next = CursorNode::wrap_target(next);
                                     Ok(ExistsLt::pack_lt(next))
                                 }
                                 None => {
@@ -660,10 +660,10 @@ mod cursor_via_wand {
                                     let ptr = wand.apply(ptr_to_field.into_virtual());
                                     let ptr = this.with_virtual(ptr);
                                     let ptr = pack_target_lt(ptr);
-                                    let ptr = FwdNode::wrap(ptr);
+                                    let ptr = FwdNode::wrap_target(ptr);
                                     let ptr = ptr.tag_target(old_wand);
                                     let ptr = pack_target_lt(ptr);
-                                    let ptr = CursorNode::wrap(ptr);
+                                    let ptr = CursorNode::wrap_target(ptr);
                                     Err(ptr)
                                 }
                             }
@@ -695,16 +695,16 @@ mod cursor_via_wand {
             ExistsLt!(<'prev> = Ptr<Own<'prev>, CursorNode<'prev, 'first>>),
             Ptr<Own<'this>, CursorNode<'this, 'first>>,
         > {
-            let ptr = CursorNode::unwrap(ptr);
+            let ptr = CursorNode::unwrap_target(ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, wand) = ptr.untag_target();
-                let ptr = FwdNode::unwrap(ptr);
+                let ptr = FwdNode::unwrap_target(ptr);
                 ptr.unpack_target_lt(|ptr| {
                     let (ptr, prev) = ptr.read_field(FPrev);
                     match prev {
                         Some(prev) => {
                             let ptr = pack_target_lt(ptr);
-                            let ptr = FwdNode::wrap(ptr);
+                            let ptr = FwdNode::wrap_target(ptr);
                             let choice = wand.apply(ptr.into_virtual());
                             let vprev = Choice::choose_left().apply(choice);
                             let prev = prev.with_virtual(vprev);
@@ -712,10 +712,10 @@ mod cursor_via_wand {
                         }
                         None => {
                             let ptr = pack_target_lt(ptr);
-                            let ptr = FwdNode::wrap(ptr);
+                            let ptr = FwdNode::wrap_target(ptr);
                             let ptr = ptr.tag_target(wand);
                             let ptr = pack_target_lt(ptr);
-                            let ptr = CursorNode::wrap(ptr);
+                            let ptr = CursorNode::wrap_target(ptr);
                             Err(ptr)
                         }
                     }
@@ -730,10 +730,10 @@ mod cursor_via_wand {
                 Ptr<PointsTo<'this>, Node>,
             ) -> Option<NonEmptyList<'this>>,
         ) -> Self {
-            let ptr = CursorNode::unwrap(self.ptr);
+            let ptr = CursorNode::unwrap_target(self.ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, wand) = ptr.untag_target();
-                let ptr = FwdNode::unwrap(ptr);
+                let ptr = FwdNode::unwrap_target(ptr);
                 ptr.unpack_target_lt(|ptr| {
                     let (ptr, next) = ptr.read_field(FNext);
                     let next = next.map(Ptr::unpack_ty);
@@ -744,10 +744,10 @@ mod cursor_via_wand {
                         let next = next.map(Ptr::pack_ty);
                         let (ptr, _) = ptr.write_field(FNext, next);
                         let ptr = pack_target_lt(ptr);
-                        let ptr = FwdNode::wrap(ptr);
+                        let ptr = FwdNode::wrap_target(ptr);
                         let ptr = ptr.tag_target(wand);
                         let ptr = pack_target_lt(ptr);
-                        let ptr = CursorNode::wrap(ptr);
+                        let ptr = CursorNode::wrap_target(ptr);
                         ListCursorInner {
                             ptr,
                             first: self.first,
@@ -801,7 +801,7 @@ mod cursor_via_wand {
 
         /// Recover ownership of the first node of the list.
         fn rewind(self) -> Ptr<Own<'first>, FwdNode<'first, 'static>> {
-            let ptr = CursorNode::unwrap(self.ptr);
+            let ptr = CursorNode::unwrap_target(self.ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, wand) = ptr.untag_target();
                 let vfirst = wand.then(Choice::choose_right()).apply(ptr.into_virtual());

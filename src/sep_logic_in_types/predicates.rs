@@ -5,22 +5,26 @@ use super::*;
 /// A type that is just a `repr(transparent)` on `Self::Unwrapped`.
 pub unsafe trait TransparentWrapper: Sized {
     type Unwrapped;
-    fn unwrap<'this, Perm: IsPointsTo<'this>>(self: Ptr<Perm, Self>) -> Ptr<Perm, Self::Unwrapped> {
-        self.map_virtual(Self::unwrap_virt)
+    fn unwrap_target<'this, Perm: IsPointsTo<'this>>(
+        self: Ptr<Perm, Self>,
+    ) -> Ptr<Perm, Self::Unwrapped> {
+        self.map_virtual(Self::unwrap_target_virt)
     }
-    fn wrap<'this, Perm: IsPointsTo<'this>>(ptr: Ptr<Perm, Self::Unwrapped>) -> Ptr<Perm, Self> {
-        ptr.map_virtual(Self::wrap_virt)
+    fn wrap_target<'this, Perm: IsPointsTo<'this>>(
+        ptr: Ptr<Perm, Self::Unwrapped>,
+    ) -> Ptr<Perm, Self> {
+        ptr.map_virtual(Self::wrap_target_virt)
     }
-    fn unwrap_virt<Perm: PtrPerm>(self: VPtr<Perm, Self>) -> VPtr<Perm, Self::Unwrapped> {
-        Self::unwrap_wand().apply(self)
+    fn unwrap_target_virt<Perm: PtrPerm>(self: VPtr<Perm, Self>) -> VPtr<Perm, Self::Unwrapped> {
+        Self::unwrap_target_wand().apply(self)
     }
-    fn wrap_virt<Perm: PtrPerm>(ptr: VPtr<Perm, Self::Unwrapped>) -> VPtr<Perm, Self> {
-        Self::wrap_wand().apply(ptr)
+    fn wrap_target_virt<Perm: PtrPerm>(ptr: VPtr<Perm, Self::Unwrapped>) -> VPtr<Perm, Self> {
+        Self::wrap_target_wand().apply(ptr)
     }
-    fn unwrap_wand<Perm: PtrPerm>() -> Wand<VPtr<Perm, Self>, VPtr<Perm, Self::Unwrapped>> {
+    fn unwrap_target_wand<Perm: PtrPerm>() -> Wand<VPtr<Perm, Self>, VPtr<Perm, Self::Unwrapped>> {
         unsafe { Wand::from_thin_air() }
     }
-    fn wrap_wand<Perm: PtrPerm>() -> Wand<VPtr<Perm, Self::Unwrapped>, VPtr<Perm, Self>> {
+    fn wrap_target_wand<Perm: PtrPerm>() -> Wand<VPtr<Perm, Self::Unwrapped>, VPtr<Perm, Self>> {
         unsafe { Wand::from_thin_air() }
     }
 }

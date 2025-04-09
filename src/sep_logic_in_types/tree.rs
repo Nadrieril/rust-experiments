@@ -239,7 +239,7 @@ mod cursor_via_wand {
     impl<'this, 'root> Cursor<'this, 'root> {
         pub fn val(&self) -> &usize {
             let ptr = self.ptr.copy_read();
-            let ptr = CursorNode::unwrap(ptr);
+            let ptr = CursorNode::unwrap_target(ptr);
             ptr.unpack_target_lt(|ptr| {
                 ptr.ignore_tag()
                     .get_field(FVal)
@@ -249,7 +249,7 @@ mod cursor_via_wand {
         #[expect(unused)]
         pub fn val_mut(&mut self) -> &mut usize {
             let ptr = self.ptr.copy_mut();
-            let ptr = CursorNode::unwrap(ptr);
+            let ptr = CursorNode::unwrap_target(ptr);
             ptr.unpack_target_lt(|ptr| {
                 ptr.ignore_tag()
                     .get_field(FVal)
@@ -290,13 +290,13 @@ mod cursor_via_wand {
                 Ptr<Own<'this>, NormalNode<'this, 'parent>>,
             ) -> Ptr<Own<'this>, NormalNode<'this, 'parent>>,
         ) -> Self {
-            let ptr = CursorNode::unwrap(self.ptr);
+            let ptr = CursorNode::unwrap_target(self.ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, wand) = ptr.untag_target();
                 let ptr = f(ptr);
                 let ptr = ptr.tag_target(wand);
                 let ptr = pack_target_lt(ptr);
-                let ptr = CursorNode::wrap(ptr);
+                let ptr = CursorNode::wrap_target(ptr);
                 Cursor {
                     ptr,
                     root: self.root,
@@ -311,7 +311,7 @@ mod cursor_via_wand {
             let wand = Choice::merge(Wand::constant(VPtr::new_impossible()), Wand::id());
             let ptr = ptr.tag_target(wand);
             let ptr = pack_target_lt(ptr);
-            let ptr = CursorNode::wrap(ptr);
+            let ptr = CursorNode::wrap_target(ptr);
             Cursor { ptr, root }
         }
     }
@@ -335,7 +335,7 @@ mod cursor_via_wand {
             for<'parent> NormalNode<'this, 'parent>:
                 HasField<FieldTok, FieldTy = Option<Child<'this>>>,
         {
-            let ptr = CursorNode::unwrap(self.ptr);
+            let ptr = CursorNode::unwrap_target(self.ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, rewind_wand) = ptr.untag_target();
                 // ptr: Ptr<Own<'this>, NormalNode<'this, 'parent>>
@@ -363,7 +363,7 @@ mod cursor_via_wand {
                                     // Pack the wand to get a `CursorNode` back.
                                     VPtr::tag_target_wand()
                                         .then(vpack_target_lt_wand())
-                                        .then(CursorNode::wrap_wand()),
+                                        .then(CursorNode::wrap_target_wand()),
                                     // Apply `rewind_wand` to get `Choice<'prev, 'first>`
                                     Wand::swap_tuple()
                                         .then(Wand::apply_wand())
@@ -378,7 +378,7 @@ mod cursor_via_wand {
                             // >
                             let child = child.tag_target(wand);
                             let child = pack_target_lt(child);
-                            let child = CursorNode::wrap(child);
+                            let child = CursorNode::wrap_target(child);
                             Ok(Cursor {
                                 ptr: child,
                                 root: self.root,
@@ -390,7 +390,7 @@ mod cursor_via_wand {
                         // No child, repack the pointer into a cursor node pointer.
                         let ptr = ptr.tag_target(rewind_wand);
                         let ptr = pack_target_lt(ptr);
-                        let ptr = CursorNode::wrap(ptr);
+                        let ptr = CursorNode::wrap_target(ptr);
                         return Err(Cursor {
                             ptr,
                             root: self.root,
@@ -403,7 +403,7 @@ mod cursor_via_wand {
         /// Move the cursor to the parent node.
         #[expect(unused)]
         pub fn parent(self) -> Result<ErasedCursor, Self> {
-            let ptr = CursorNode::unwrap(self.ptr);
+            let ptr = CursorNode::unwrap_target(self.ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, rewind_wand) = ptr.untag_target();
                 let (ptr, parent) = ptr.read_field(FParent);
@@ -421,7 +421,7 @@ mod cursor_via_wand {
                     None => {
                         let ptr = ptr.tag_target(rewind_wand);
                         let ptr = pack_target_lt(ptr);
-                        let ptr = CursorNode::wrap(ptr);
+                        let ptr = CursorNode::wrap_target(ptr);
                         Err(Cursor {
                             ptr,
                             root: self.root,
@@ -433,7 +433,7 @@ mod cursor_via_wand {
 
         /// Recover ownership of the tree root.
         pub fn rewind(self) -> Child<'static> {
-            let ptr = CursorNode::unwrap(self.ptr);
+            let ptr = CursorNode::unwrap_target(self.ptr);
             ptr.unpack_target_lt(|ptr| {
                 let (ptr, wand) = ptr.untag_target();
                 let vroot = wand.then(Choice::choose_right()).apply(ptr.into_virtual());
