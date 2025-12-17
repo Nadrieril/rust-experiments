@@ -3,7 +3,12 @@ name = "experiments"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "man_or_boy"
+path = "src/man_or_boy.rs"
+
 [dependencies]
 higher-kinded-types = "0.1.1"
 ghost-cell = "0.2.6"
 take_mut = "0.2.2"
+itertools = "0.14.0"
